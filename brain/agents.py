@@ -94,7 +94,7 @@ def _checker(n, first, offered):
     return check
 
 
-def agent_turn(me, other, activity, know, context, round_no, last=None, n=3):
+def agent_turn(me, other, activity, know, context, round_no, last=None, n=3, context_note=""):
     """One agent move. `know[name]` = {"answer", "profile", "free"}; `last` is the
     other agent's latest {pick, reason} or None."""
     system = SYSTEM.format(
@@ -102,7 +102,7 @@ def agent_turn(me, other, activity, know, context, round_no, last=None, n=3):
         my_answer=know[me["name"]]["answer"], their_answer=know[other["name"]]["answer"],
         profile=json.dumps(know[me["name"]]["profile"], indent=2),
         their_free=fmt_windows(know[other["name"]]["free"]))
-    user = f"{me['name']}'s own calendar:\n{context}\n\n"
+    user = f"{me['name']}'s own calendar:\n{context}\n\n" + (f"{context_note}\n\n" if context_note else "")
     if last is None:
         user += "You go first. Propose the slot you want."
         summary = f"{me['name']}'s agent proposes first from {n} shared slots"
@@ -118,7 +118,8 @@ def agent_turn(me, other, activity, know, context, round_no, last=None, n=3):
             "reasoning_content": out["reasoning"], "reply": out["reply"]}
 
 
-def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=print, notes=None):
+def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=print, notes=None,
+              on_turn=None, context_note="", before_turn=None):
     """Proposer's agent picks first, the other accepts or counters, up to
     MAX_ROUNDS rounds; then the best combined rank wins.
     `slots` = [(start, window)]. Returns {"agreed_index", "how", "turns", "ranked"}
@@ -126,6 +127,8 @@ def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=
     n = len(slots)
     if n == 1:
         log("  Only one shared slot, nothing to negotiate.")
+        if on_turn:
+            on_turn(None, {"decision": "only", "pick": 1, "reason": "Only one shared slot, nothing to negotiate."}, slots[0])
         return {"agreed_index": 0, "how": "only one shared slot", "turns": [], "ranked": [0]}
     ctx = {p["name"]: calendar_context(busy_by_cal[p["calendar_id"]], slots, minutes, notes)
            for p in (proposer, other)}
@@ -133,12 +136,16 @@ def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=
     order = [proposer, other]
     for round_no in range(1, MAX_ROUNDS + 1):
         for i, me in enumerate(order):
-            t = agent_turn(me, order[1 - i], activity, know, ctx[me["name"]], round_no, last, n)
+            if before_turn:
+                before_turn(me)
+            t = agent_turn(me, order[1 - i], activity, know, ctx[me["name"]], round_no, last, n, context_note)
             turns.append(t)
             r = t["reply"]
             rankings[me["name"]] = r["ranking"]
             log(f"  [round {round_no}] {me['name']}'s agent {r['decision']}s slot {r['pick']} "
                 f"({fmt(slots[r['pick'] - 1][0])}, {slots[r['pick'] - 1][1]}): {r['reason']}")
+            if on_turn:
+                on_turn(me, r, slots[r["pick"] - 1])
             if r["decision"] == "accept":
                 agreed, how = r["pick"], f"agreed in round {round_no}"
                 break
@@ -154,3 +161,67 @@ def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=
     ranked = [agreed - 1] + [s - 1 for s in by_score if s != agreed]
     return {"agreed_index": agreed - 1, "how": how, "turns": turns, "ranked": ranked,
             "combined_rank": score}
+
+
+LENGTH_SYSTEM = """You are {name}'s personal scheduling agent inside Ketchup.
+{name} and {other} are meeting to "{activity}". When asked "How long do you
+prefer to meet?", {name} wants {mine} minutes and {other} wants {theirs} minutes.
+Agree on one meeting length with {other}'s agent.
+Reply with strict JSON only, no prose, no code fences:
+{{"decision": "propose" | "accept" | "counter",
+  "minutes": integer between {lo} and {hi},
+  "reason": "one short sentence, friendly, under 20 words"}}
+Rules:
+- A shorter meeting fits more calendars; a longer one honors who wants more time.
+  Be fair, and settle quickly.
+- "propose" only when you go first. Otherwise "accept" (minutes = the other
+  agent's minutes) or "counter" (different minutes)."""
+
+
+def negotiate_length(proposer, other, activity, wants, log=print, on_turn=None, before_turn=None):
+    """Agents agree on a meeting length. `wants` = {name: minutes}. Up to
+    MAX_ROUNDS rounds; no deal -> the shorter length. Returns
+    {"minutes", "how", "turns"}."""
+    a, b = wants[proposer["name"]], wants[other["name"]]
+    if a == b:
+        return {"minutes": a, "how": "both asked for the same length", "turns": []}
+    lo, hi = min(a, b), max(a, b)
+    turns, last = [], None
+    order = [proposer, other]
+    for round_no in range(1, MAX_ROUNDS + 1):
+        for i, me in enumerate(order):
+            them = order[1 - i]
+            system = LENGTH_SYSTEM.format(name=me["name"], other=them["name"], activity=activity,
+                                          mine=wants[me["name"]], theirs=wants[them["name"]], lo=lo, hi=hi)
+            if last is None:
+                user = "You go first. Propose a length."
+            else:
+                user = (f"{them['name']}'s agent proposes {last['minutes']} minutes: \"{last['reason']}\"\n"
+                        "Accept it or counter with a different length.")
+
+            def check(r, first=last is None, offered=last and last["minutes"]):
+                if r.get("decision") not in ({"propose"} if first else {"accept", "counter"}):
+                    raise ValueError("bad decision")
+                if not isinstance(r.get("minutes"), int) or not lo <= r["minutes"] <= hi:
+                    raise ValueError(f"minutes must be {lo}-{hi}")
+                if r["decision"] == "accept" and r["minutes"] != offered:
+                    raise ValueError("accept must use the offered minutes")
+                if r["decision"] == "counter" and r["minutes"] == offered:
+                    raise ValueError("counter must change the minutes")
+                if not isinstance(r.get("reason"), str) or not r["reason"].strip():
+                    raise ValueError("missing reason")
+            if before_turn:
+                before_turn(me)
+            out = ask_json(system, user, check=check)
+            r = out["reply"]
+            turns.append({"round": round_no, "agent": me["name"], "topic": "length",
+                          "prompt": {"system": system, "user": user}, "model": out["model"],
+                          "model_errors": out["errors"], "reasoning_content": out["reasoning"], "reply": r})
+            log(f"  [length round {round_no}] {me['name']}'s agent {r['decision']}s {r['minutes']} min: {r['reason']}")
+            if on_turn:
+                on_turn(me, r)
+            if r["decision"] == "accept":
+                return {"minutes": r["minutes"], "how": f"agreed in round {round_no}", "turns": turns}
+            last = r
+    log(f"  No length deal after {MAX_ROUNDS} rounds; taking the shorter, {lo} min.")
+    return {"minutes": lo, "how": "no deal: the shorter length", "turns": turns}

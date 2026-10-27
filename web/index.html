@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ketchup</title>
+<style>
+  :root { --red:#d7263d; --red-dark:#a81b2e; --ink:#1d1d1f; --muted:#6e6e73; --bg:#f6f4f1;
+          --card:#fff; --line:#e6e2dc; --mayo:#d7263d; --frankie:#2b6cb0; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         color:var(--ink); background:var(--bg); height:100vh; display:flex; flex-direction:column; }
+  header { display:flex; align-items:center; gap:14px; padding:12px 20px; background:var(--card);
+           border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:20px; color:var(--red); letter-spacing:-.3px; }
+  #phrase { flex:1; max-width:380px; padding:9px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; }
+  #go { background:var(--red); color:#fff; border:0; border-radius:999px; padding:10px 26px; font:600 16px inherit;
+        font-family:inherit; cursor:pointer; box-shadow:0 2px 0 var(--red-dark); }
+  #go:hover { background:var(--red-dark); } #go:disabled { opacity:.5; cursor:default; }
+  label.dry { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:14px; }
+  #status { margin-left:auto; font-size:13px; color:var(--muted); }
+  main { flex:1; display:grid; grid-template-columns:1fr 1.35fr 1fr; gap:14px; padding:14px; min-height:0; }
+  .col { background:var(--card); border:1px solid var(--line); border-radius:14px; display:flex;
+         flex-direction:column; min-height:0; overflow:hidden; }
+  .col h2 { margin:0; padding:12px 16px; font-size:15px; border-bottom:1px solid var(--line); display:flex; gap:8px; align-items:center; }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .log { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:8px; }
+  .msg { max-width:86%; padding:8px 12px; border-radius:14px; white-space:pre-wrap; word-wrap:break-word; }
+  .msg .who { display:block; font-size:11px; font-weight:600; opacity:.7; margin-bottom:2px; }
+  .agent { align-self:flex-start; background:#f1efec; border-bottom-left-radius:4px; }
+  .user { align-self:flex-end; background:var(--red); color:#fff; border-bottom-right-radius:4px; }
+  .user.frankie { background:var(--frankie); }
+  .mid-mayo { align-self:flex-start; background:#fdecee; border-bottom-left-radius:4px; }
+  .mid-frankie { align-self:flex-end; background:#e8f0fa; border-bottom-right-radius:4px; }
+  .system { align-self:center; max-width:94%; background:none; color:var(--muted); font-size:13px; text-align:center; padding:2px 8px; }
+  .system.agreed, .system.final { color:var(--red-dark); font-weight:600; }
+  .final.agent { border:2px solid var(--red); }
+  .tag { font-size:11px; opacity:.8; margin-left:6px; }
+  .thinking { align-self:flex-start; color:var(--muted); font-size:13px; font-style:italic; padding:4px 10px; }
+  .thinking::after { content:""; animation:dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."} }
+  form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--line); }
+  form input { flex:1; padding:9px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; }
+  form button { border:0; background:var(--ink); color:#fff; border-radius:10px; padding:0 14px; font:inherit; cursor:pointer; }
+  form.waiting input { border-color:var(--red); box-shadow:0 0 0 3px #d7263d22; }
+  form input:disabled, form button:disabled { opacity:.45; }
+  .empty { color:var(--muted); text-align:center; margin:auto; font-size:14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🍅 Ketchup</h1>
+  <input id="phrase" value="let's catch up this week" aria-label="What to plan">
+  <button id="go">Ketchup</button>
+  <label class="dry"><input type="checkbox" id="dry" checked> Dry run (don't touch calendars)</label>
+  <span id="status">Press Ketchup to start.</span>
+</header>
+<main>
+  <section class="col"><h2><span class="dot" style="background:var(--mayo)"></span>Mayo + Mayo's agent</h2>
+    <div class="log" id="log-mayo"><div class="empty">Mayo's agent will ask here.</div></div>
+    <form data-person="mayo"><input placeholder="Type as Mayo…" disabled><button disabled>Send</button></form></section>
+  <section class="col"><h2>Mayo's agent ⇄ Frankie's agent</h2>
+    <div class="log" id="log-middle"><div class="empty">The agents talk here.</div></div></section>
+  <section class="col"><h2><span class="dot" style="background:var(--frankie)"></span>Frankie + Frankie's agent</h2>
+    <div class="log" id="log-frankie"><div class="empty">Frankie's agent will ask here.</div></div>
+    <form data-person="frankie"><input placeholder="Type as Frankie…" disabled><button disabled>Send</button></form></section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+let sid = new URLSearchParams(location.search).get("session"), seen = 0, timer = null, names = {};
+
+function bubble(m) {
+  const d = document.createElement("div");
+  const tag = m.mapped ? `<span class="tag">(heard: ${esc(m.mapped)})</span>` : "";
+  if (m.channel === "middle") {
+    if (m.who === "system") { d.className = "msg system " + (m.kind || ""); d.textContent = m.text; }
+    else { d.className = "msg mid-" + m.who; d.innerHTML = `<span class="who">${esc(names[m.who] || m.who)}'s agent · ${m.at}</span>` + esc(m.text); }
+  } else if (m.who === "user") {
+    d.className = "msg user " + m.channel; d.innerHTML = `<span class="who">${esc(names[m.channel] || m.channel)}</span>` + esc(m.text);
+  } else {
+    d.className = "msg agent " + (m.kind || ""); d.innerHTML = `<span class="who">${esc(names[m.channel] || m.channel)}'s agent · ${m.at}</span>` + esc(m.text) + tag;
+  }
+  return d;
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function render(s) {
+  names = s.people;
+  for (const m of s.messages) {
+    const log = $("#log-" + m.channel); log.querySelector(".empty")?.remove();
+    log.querySelector(".thinking")?.remove(); log.appendChild(bubble(m));
+  }
+  seen += s.messages.length;
+  for (const ch of ["mayo", "middle", "frankie"]) {
+    const log = $("#log-" + ch); let t = log.querySelector(".thinking");
+    if (s.thinking[ch]) { if (!t) { t = document.createElement("div"); t.className = "thinking"; log.appendChild(t); } t.textContent = s.thinking[ch]; }
+    else t?.remove();
+    if (s.messages.length || s.thinking[ch]) log.scrollTop = log.scrollHeight;
+  }
+  for (const f of document.querySelectorAll("form")) {
+    const on = !!s.waiting_for[f.dataset.person];
+    f.classList.toggle("waiting", on); f.querySelector("input").disabled = !on; f.querySelector("button").disabled = !on;
+  }
+  const done = ["done", "failed"].includes(s.state);
+  $("#status").textContent = `${s.dry_run ? "Dry run" : "Real booking"} · ${s.state}` + (s.slot ? ` · ${s.slot}` : "");
+  $("#go").disabled = !done;
+  if (done) clearInterval(timer);
+}
+
+let polling = false;
+async function poll() {
+  if (polling) return; polling = true;  // one request at a time, so nothing renders twice
+  try { const r = await fetch(`/api/session/${sid}?since=${seen}`); if (r.ok) render(await r.json()); }
+  finally { polling = false; }
+}
+
+$("#go").onclick = async () => {
+  for (const ch of ["mayo", "middle", "frankie"]) $("#log-" + ch).innerHTML = "";
+  seen = 0; $("#go").disabled = true; $("#status").textContent = "Starting…";
+  const r = await fetch("/api/start", {method: "POST", body: JSON.stringify({phrase: $("#phrase").value, dry_run: $("#dry").checked})});
+  const j = await r.json();
+  if (!r.ok) { $("#status").textContent = j.error; $("#go").disabled = false; return; }
+  sid = j.session_id; history.replaceState(null, "", "?session=" + sid);
+  clearInterval(timer); timer = setInterval(poll, 800); poll();
+};
+
+for (const f of document.querySelectorAll("form")) f.onsubmit = async e => {
+  e.preventDefault(); const inp = f.querySelector("input"); const text = inp.value.trim();
+  if (!text || !sid) return; inp.value = "";
+  const r = await fetch(`/api/session/${sid}/say`, {method: "POST", body: JSON.stringify({person: f.dataset.person, text})});
+  if (!r.ok) $("#status").textContent = (await r.json()).error;
+  poll();
+};
+
+if (sid) { for (const ch of ["mayo","middle","frankie"]) $("#log-" + ch).innerHTML = ""; timer = setInterval(poll, 800); poll(); }
+</script>
+</body>
+</html>

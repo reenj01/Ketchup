@@ -2,6 +2,8 @@
 
 Baseten (Muse Spark Open) is the main brain; Meta's Model API is the backup.
 """
+from __future__ import annotations
+
 import json
 import os
 import sys
@@ -41,14 +43,18 @@ def _call(url, model, key_env, system, user, max_tokens):
         "Content-Type": "application/json",
     })
     with urllib.request.urlopen(req, timeout=90) as resp:
-        message = json.load(resp)["choices"][0]["message"]
+        choice = json.load(resp)["choices"][0]
+    message = choice["message"]
+    if not message.get("content"):
+        raise ValueError(f"no answer text (finish_reason={choice.get('finish_reason')}; "
+                         "the reasoning likely used up max_tokens)")
     content = message["content"].strip()
     if content.startswith("```"):
         content = content.strip("`").removeprefix("json").strip()
     return json.loads(content), message.get("reasoning_content")
 
 
-def ask_json(system: str, user: str, check=None, max_tokens=4000) -> dict:
+def ask_json(system: str, user: str, check=None, max_tokens=12000) -> dict:
     """Ask Muse Spark Open for a strict-JSON reply; fall back to Meta's API.
 
     `check(reply)` may raise to reject a malformed reply (it is retried).

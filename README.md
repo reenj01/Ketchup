@@ -105,6 +105,68 @@ Both pebbles say: "Nothing worked at noon on Thursday, so how about Thu Oct 29 a
 - Agents reply in strict JSON (`ranking`, `decision`, `pick`, `reason`). Malformed replies
   are retried, then fall back to Meta's `muse-spark-1.3`.
 
+## Web page (watch everything on one screen)
+
+A three-chat page for seeing the whole flow: Mayo and Mayo's agent on the left,
+Frankie and Frankie's agent on the right, and the two agents negotiating in the
+middle. Press **Ketchup** (same as tapping the pebbles), answer both questions on
+each side ("What time of day do you prefer to meet?", "How long do you prefer to
+meet?"), and watch the agents settle the length and then the day and time. Answers are
+typed for now; on the pebbles they'll be spoken. Everything is live: Muse Spark
+Open maps the answers and runs both agents, and both real calendars are read.
+
+**Dry run (don't touch calendars)** is on by default. Turn it off to really book.
+
+### Run it on a Mac (first time)
+
+```
+cd ~/Desktop/ketchup
+git pull
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env
+open -e .env
+```
+
+In `.env`, paste your Baseten key after `BASETEN_API_KEY=` (`META_API_KEY` is optional,
+for the backup model) and save. Then put the Google service account JSON key in the
+repo folder, named `service-account.json` (the default `.env` line,
+`GOOGLE_SA_FILE=service-account.json`, points at it):
+
+```
+mv ~/Downloads/<the-key-file>.json ~/Desktop/ketchup/service-account.json
+```
+
+`.env` and `service-account.json` are both gitignored, so they never get committed.
+
+Start the server, then open **http://localhost:8000**:
+
+```
+.venv/bin/python web/server.py
+```
+
+Next time it's just `cd ~/Desktop/ketchup && git pull && .venv/bin/python web/server.py`
+(run `.venv/bin/pip install -r requirements.txt` again if `requirements.txt` changed).
+Stop it with Ctrl+C. Use `--port 9000` if 8000 is taken. The macOS built-in `python3`
+(3.9) works.
+
+### How the page's flow works
+
+1. Each agent asks its person the two questions. Muse Spark Open turns free text into
+   morning / noon / night and into minutes ("an hour" → 60).
+2. Middle chat: if the lengths differ, the agents agree on one (real model turns, up to 2
+   rounds, else the shorter). Each agent then shares its person's free times, and the agents
+   negotiate the day and time over the shared slots (30 min hard buffer, soft windows,
+   same-day fallback, the same rules as the pebbles).
+3. It books right away (unless dry run), and each agent says "Frankie and you are free on
+   <day> at <time>. I've booked it in your calendar. Do you want a different day or time?"
+4. If anyone says yes, the events are deleted and the agents renegotiate without that day's
+   window. Up to `max_change_rounds` (2) changes. When both say no: "Plan booked with <other>."
+
+This book-then-ask order applies only to the page. The pebble/CLI flow (`flow.py`) still
+books only after both keep it. API: `POST /api/start`, `GET /api/session/<id>?since=n`,
+`POST /api/session/<id>/say`. `scripts/web_drive.py` runs a whole session through it.
+
 ## Tap server
 
 The pebbles talk to a small standard-library server.
@@ -135,5 +197,8 @@ The pebbles talk to a small standard-library server.
 - `brain/agents.py`: the two agents and the negotiation.
 - `brain/flow.py`: the session state machine (nudge, questions, voice answer mapping, proposal, keep/change, booking), used by the CLI and the server.
 - `brain/book.py`: puts the same event on each calendar (via a Google service account both calendars are shared with, so nobody signs in).
+- `brain/web_flow.py`: the web page's session (three chats, length negotiation, book-then-ask, change rounds).
+- `web/server.py`, `web/index.html`: the web page (standard library server, one HTML file). `.env.example` lists the keys it reads.
+- `scripts/web_drive.py`: drives a full web session over HTTP (optionally with screenshots).
 - `tests/test_slots.py`: checks the 30 min rule, the windows, and the same-day fallback when noon is blocked.
 - `traces/`: one JSON per run with every step: the plan, free/busy, inferred profiles (input facts, model reasoning, JSON), each answer and how it was mapped, shared free windows, every agent turn, each keep/change, and the created events.
