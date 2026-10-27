@@ -15,8 +15,9 @@ SYSTEM = """You are {name}'s personal scheduling agent inside Ketchup.
 {name} and {other} just agreed to "{activity}". The numbered slots below are
 times when BOTH are free, each already at least 30 minutes away from any
 other event on either calendar, best fit to both answers first. Morning,
-noon and night are soft preferences: a slot marked "fallback" is outside
-what someone asked for. Get a slot that is good for {name} while
+noon and night are soft preferences. "fallback" = nothing worked in the
+window someone asked for that day. "compromise" = their window had time, but
+this slot is the other person's pick or a middle ground. Get a slot that is good for {name} while
 being fair, so the two of you agree quickly.
 
 - {name} was asked "Morning, noon, or night?" and said: {my_answer}
@@ -39,6 +40,7 @@ Rules:
   the person; never claim they asked for it, and weigh it below a spoken answer.
 - If you pick a fallback slot, say so plainly in your reason, e.g.
   "Nothing worked at noon, so how about <time>?" Use the real slot time.
+  Never call a compromise a fallback.
 - Use inferred habits only to break ties, weighted by their confidence.
 - "propose" only when you go first. Otherwise "accept" (pick = the other
   agent's pick) or "counter" (pick = a different slot).

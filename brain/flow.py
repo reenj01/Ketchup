@@ -268,8 +268,11 @@ class Session:
         self.ask_confirm()
 
     def note_text(self, t):
-        n = [f"{who}: {x}" for who, x in self.notes.get(t, {}).items() if x]
-        return f" (fallback, {'; '.join(n)})" if n else ""
+        notes = {who: x for who, x in self.notes.get(t, {}).items() if x}
+        if not notes:
+            return ""
+        kind = "fallback" if any(x.startswith("nothing worked") for x in notes.values()) else "compromise"
+        return f" ({kind}, {'; '.join(f'{who}: {x}' for who, x in notes.items())})"
 
     def proposal_line(self, p, t):
         """What one pebble says, plain about any fallback."""
@@ -278,6 +281,11 @@ class Session:
         note = self.notes.get(t, {}).get(p["name"])
         if note and note.startswith("nothing worked"):
             lead = f"Nothing worked at {choice} on {t:%A}, so {q}"
+        elif note == "the other person's pick":
+            other = next(o for o in self.people if o is not p)
+            oa = self.answers[other["name"]]
+            said = "picked" if oa["source"] == "voice" else "usually prefers"
+            lead = f"{other['name']} {said} {oa['choice']}, so {q}"
         elif note == "middle ground":
             other = next(o for o in self.people if o is not p)
             oa = self.answers[other["name"]]
@@ -285,7 +293,9 @@ class Session:
             lead = f"{other['name']} {said} {oa['choice']}, so to meet in the middle, {q}"
         else:
             lead = q[0].upper() + q[1:]
-        return ("Next option: " + lead[0].lower() + lead[1:]) if self.change_round else lead
+        if not self.change_round:
+            return lead
+        return "Next option: " + (lead[0].lower() + lead[1:] if lead.startswith("How") else lead)
 
     def describe_answer(self, name):
         a = self.answers.get(name, {})

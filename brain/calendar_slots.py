@@ -140,6 +140,8 @@ def fallback_note(t, window, choice, other_choice, slots):
         return None
     if not any(window_of(s) == choice and s.date() == t.date() for s in slots):
         return f"nothing worked at {choice} on {t:%A}"
+    if other_choice and window == other_choice:
+        return "the other person's pick"
     if other_choice and other_choice != choice:
         return "middle ground"
     return f"another option, not {choice}"
