@@ -1,0 +1,5 @@
+{
+  "_note": "Synthetic busy blocks for dry runs only (never written to a calendar). Together with the 30 min buffer they leave no shared noon slot on Thu Oct 29.",
+  "mayo": [["2026-10-29T12:00", "2026-10-29T14:00"]],
+  "frankie": [["2026-10-29T14:30", "2026-10-29T17:00"]]
+}

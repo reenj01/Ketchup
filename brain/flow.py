@@ -7,8 +7,11 @@ paired -> asking_time_of_day -> proposing -> confirming -> booked | failed
 2. Both pebbles ask "Morning, noon, or night?". Each person answers by voice.
    No answer before the timeout: their agent uses the habit it inferred from
    their calendar.
-3. The agents share each other's free windows (times only) and pick a slot
-   that respects both answers. Nothing fits: look at next week.
+3. The agents share each other's free windows (times only) and pick a slot.
+   Answers are soft: slots in the asked-for window rank first; if none work
+   (30 min buffer + both calendars), other windows the same day are offered and
+   the pebbles say so ("Nothing worked at noon, so how about 10:30 AM?").
+   Next week only if nothing works in any window on the plan's dates.
 4. Both pebbles ask "How about Thu Oct 29 at 12:00 PM? Want to change it?"
    Both say keep -> book. Anyone says change -> next-best option, at most 2 times.
 
@@ -24,13 +27,13 @@ from pathlib import Path
 
 from agents import fmt, fmt_windows, negotiate
 from book import book
-from calendar_slots import SETTINGS, WINDOWS, at, candidates, free_slots, free_windows, freebusy
+from calendar_slots import (ORDER, SETTINGS, WINDOWS, at, candidates, fallback_note, free_slots,
+                            free_windows, freebusy, wanted_windows)
 from gcal import PEOPLE, calendar
 from infer_prefs import infer_prefs
 from parse_plan import TZ, ask_json, parse_plan
 
 TRACES = Path(__file__).parent.parent / "traces"
-ORDER = list(WINDOWS)  # morning, noon, night
 HABIT_TO_WINDOW = {"morning": "morning", "afternoon": "noon", "evening": "night"}
 CHOICES = {"time_of_day": ORDER, "confirm": ["keep", "change"]}
 DONE = ("booked", "agreed (dry run, not booked)", "failed")
@@ -65,17 +68,9 @@ def map_answer(kind, question, text):
         "model": out["model"], "reasoning_content": out["reasoning"], "reply": out["reply"]}
 
 
-def wanted_windows(choices):
-    """Windows to search: the ones people asked for plus any in between
-    (morning + night -> noon too, as a middle ground). No answers: all."""
-    if not choices:
-        return list(ORDER)
-    idx = sorted(ORDER.index(c) for c in choices)
-    return ORDER[idx[0]: idx[-1] + 1]
-
-
 class Session:
-    def __init__(self, phrase, proposer="mayo", dry_run=False, log=print, source="cli", sid=None):
+    def __init__(self, phrase, proposer="mayo", dry_run=False, log=print, source="cli", sid=None,
+                 extra_busy=None):
         other = next(k for k in PEOPLE if k != proposer)
         self.people = [PEOPLE[proposer], PEOPLE[other]]
         self.by_device = {p["device_id"]: p for p in self.people}
@@ -84,7 +79,10 @@ class Session:
         self.lock = threading.RLock()
         self.state, self.questions, self.answers, self.confirms = "paired", {}, {}, {}
         self.deadline, self.options, self.proposal_i, self.change_round = None, [], 0, 0
-        self.lines, self.result = [], {}
+        self.lines, self.result, self.notes, self.shared = [], {}, {}, []
+        # Synthetic busy blocks {person_key: [(start, end)]}, dry runs only (testing).
+        assert not extra_busy or dry_run, "extra busy blocks are for dry runs only"
+        self.extra_busy = extra_busy or {}
         self.trace = {"started_at": self.now.isoformat(), "source": source, "session_id": sid,
                       "input_phrase": phrase, "proposer": PEOPLE[proposer]["name"],
                       "dry_run": dry_run, "settings": SETTINGS,
@@ -117,10 +115,15 @@ class Session:
         self.set_state("failed")
 
     def ask(self, kind, text):
-        self.questions = {p["device_id"]: {"kind": kind, "say": text, "choices": CHOICES[kind]}
-                          for p in self.people}
-        self.step("ask", kind=kind, say=text, devices=list(self.questions))
-        self.say(f'Both pebbles say: "{text}"')
+        """`text` is one string for both pebbles or {device_id: string}."""
+        say = text if isinstance(text, dict) else {p["device_id"]: text for p in self.people}
+        self.questions = {d: {"kind": kind, "say": t, "choices": CHOICES[kind]} for d, t in say.items()}
+        self.step("ask", kind=kind, say=say, devices=list(self.questions))
+        if len(set(say.values())) == 1:
+            self.say(f'Both pebbles say: "{next(iter(say.values()))}"')
+        else:
+            for p in self.people:
+                self.say(f'{p["name"]}\'s pebble says: "{say[p["device_id"]]}"')
 
     # ---- 1. start: plan, habits, nudge, ask morning/noon/night ----------------
     def start(self, ask=True):
@@ -205,24 +208,33 @@ class Session:
     def propose(self, pick=None):
         self.set_state("proposing")
         plan, minutes = self.plan, self.plan["duration_min"]
-        choices = [a["choice"] for a in self.answers.values() if a.get("choice")]
-        wanted = wanted_windows(choices) if pick is None else list(ORDER)
-        self.step("windows", answers=self.answers, search_windows=wanted)
-        self.say(f"Searching {', '.join(f'{w} {hm(WINDOWS[w][0])}-{hm(WINDOWS[w][1])}' for w in wanted)} "
-                 f"(always 30 min clear of other events)")
+        choices = [a["choice"] for a in self.answers.values() if a.get("choice")] if pick is None else []
+        wanted = wanted_windows(choices)
+        self.step("windows", answers=self.answers, preferred_windows=wanted)
+        self.say(f"Preferred: {', '.join(f'{w} {hm(WINDOWS[w][0])}-{hm(WINDOWS[w][1])}' for w in wanted)}; "
+                 f"other windows only if nothing fits (always 30 min clear of other events)")
         ids = [p["calendar_id"] for p in self.people]
         start, end = self.start_day, self.end_day
         for attempt in ("requested dates", "next week"):
             busy = freebusy(self.cal, ids, at(start, WINDOWS["morning"][0]).replace(hour=0),
                             at(end, WINDOWS["morning"][0]).replace(hour=0) + timedelta(days=1))
+            for key, blocks in self.extra_busy.items():
+                busy[PEOPLE[key]["calendar_id"]] = sorted(busy[PEOPLE[key]["calendar_id"]] + blocks)
+            if self.extra_busy:
+                self.say("  (dry run with synthetic busy blocks added: " + "; ".join(
+                    f"{PEOPLE[k]['name']} {s:%a} {hm(s)}-{hm(e)}" for k, bl in self.extra_busy.items()
+                    for s, e in bl) + ")")
             shared = free_slots(busy, start, end, minutes, self.now)
-            cands = candidates(shared, minutes, wanted)
+            cands = candidates(shared, minutes, choices)
+            ch = {p["name"]: self.answers.get(p["name"], {}).get("choice") for p in self.people}
+            notes = {t: {p["name"]: fallback_note(t, w, ch[p["name"]], ch[o["name"]], shared)
+                         for p, o in (self.people, self.people[::-1])} for t, w in cands}
             free = {p["name"]: free_windows(busy[p["calendar_id"]], start, end, self.now)
                     for p in self.people}
             self.step("share_free_times", attempt=attempt, dates=[str(start), str(end)],
                       free_windows={n: [f"{s:%a %b %-d} {hm(s)}-{hm(e)}" for s, e in w]
                                     for n, w in free.items()},
-                      candidates=[f"{fmt(t)} [{w}]" for t, w in cands])
+                      candidates=[{"slot": f"{fmt(t)} [{w}]", "notes": notes[t]} for t, w in cands])
             for n, w in free.items():
                 self.say(f"  {n}'s agent shares free time: " + "; ".join(
                     f"{s:%a} {hm(s)}-{hm(e)}" for s, e in w) if w else f"  {n}'s agent: no free time")
@@ -233,9 +245,10 @@ class Session:
             end = start + timedelta(days=6)
         if not cands:
             return self.fail("No shared time that fits, this week or next.")
-        self.say("Options both are free for:")
+        self.notes, self.shared = notes, shared
+        self.say("Options both are free for, best fit first:")
         for i, (t, w) in enumerate(cands, 1):
-            self.say(f"  {i}. {fmt(t)} [{w}]")
+            self.say(f"  {i}. {fmt(t)} [{w}]{self.note_text(t)}")
         if pick:
             self.options = [cands[pick - 1]]
             self.trace["agreement"] = {"how": f"manual override --pick {pick}"}
@@ -245,13 +258,34 @@ class Session:
                 for p in self.people}
         self.say("Agents negotiating:")
         res = negotiate(self.people[0], self.people[1], plan["activity"], cands, busy,
-                        minutes, know, log=self.say)
+                        minutes, know, log=self.say,
+                        notes={t: self.note_text(t).strip(" ()") for t, _ in cands})
         self.trace["agent_turns"] += res.pop("turns")
         self.trace["agreement"] = res
         self.options = [cands[i] for i in res["ranked"]]
         self.step("agents_agreed", how=res["how"], options_in_order=[f"{fmt(t)} [{w}]" for t, w in self.options])
         self.proposal_i = 0
         self.ask_confirm()
+
+    def note_text(self, t):
+        n = [f"{who}: {x}" for who, x in self.notes.get(t, {}).items() if x]
+        return f" (fallback, {'; '.join(n)})" if n else ""
+
+    def proposal_line(self, p, t):
+        """What one pebble says, plain about any fallback."""
+        q = f"how about {t:%a %b %-d} at {hm(t)}? Want to change it?"
+        choice = self.answers.get(p["name"], {}).get("choice")
+        note = self.notes.get(t, {}).get(p["name"])
+        if note and note.startswith("nothing worked"):
+            lead = f"Nothing worked at {choice} on {t:%A}, so {q}"
+        elif note == "middle ground":
+            other = next(o for o in self.people if o is not p)
+            oa = self.answers[other["name"]]
+            said = "picked" if oa["source"] == "voice" else "usually prefers"
+            lead = f"{other['name']} {said} {oa['choice']}, so to meet in the middle, {q}"
+        else:
+            lead = q[0].upper() + q[1:]
+        return ("Next option: " + lead[0].lower() + lead[1:]) if self.change_round else lead
 
     def describe_answer(self, name):
         a = self.answers.get(name, {})
@@ -263,7 +297,7 @@ class Session:
         self.result["proposal"] = {"slot": fmt(t), "window": w, "start": t.isoformat()}
         self.confirms = {}
         self.set_state("confirming")
-        self.ask("confirm", f"How about {t:%a %b %-d} at {hm(t)}? Want to change it?")
+        self.ask("confirm", {p["device_id"]: self.proposal_line(p, t) for p in self.people})
 
     def confirm_result(self):
         changers = [n for n, c in self.confirms.items() if c["choice"] == "change"]

@@ -14,7 +14,9 @@ MAX_ROUNDS = 2
 SYSTEM = """You are {name}'s personal scheduling agent inside Ketchup.
 {name} and {other} just agreed to "{activity}". The numbered slots below are
 times when BOTH are free, each already at least 30 minutes away from any
-other event on either calendar. Get a slot that is good for {name} while
+other event on either calendar, best fit to both answers first. Morning,
+noon and night are soft preferences: a slot marked "fallback" is outside
+what someone asked for. Get a slot that is good for {name} while
 being fair, so the two of you agree quickly.
 
 - {name} was asked "Morning, noon, or night?" and said: {my_answer}
@@ -35,6 +37,8 @@ Rules:
   and night) or a choice that honors both as well as possible.
 - An answer marked "no answer: default from calendar habits" was NOT said by
   the person; never claim they asked for it, and weigh it below a spoken answer.
+- If you pick a fallback slot, say so plainly in your reason, e.g.
+  "Nothing worked at noon, so how about <time>?" Use the real slot time.
 - Use inferred habits only to break ties, weighted by their confidence.
 - "propose" only when you go first. Otherwise "accept" (pick = the other
   agent's pick) or "counter" (pick = a different slot).
@@ -49,7 +53,7 @@ def fmt_windows(wins):
     return "\n".join(f"  {s:%a %b %-d} {s:%-I:%M %p}-{e:%-I:%M %p}" for s, e in wins) or "  none"
 
 
-def calendar_context(busy, slots, minutes):
+def calendar_context(busy, slots, minutes, notes=None):
     """Plain-text view of one person's own calendar around each slot."""
     from datetime import timedelta
     days = sorted({t.date() for t, _ in slots})
@@ -64,7 +68,9 @@ def calendar_context(busy, slots, minutes):
         after = min([s for s, _ in busy if s >= end and s.date() == t.date()], default=None)
         gb = f"{int((t - before).total_seconds() // 60)} min" if before else "open"
         ga = f"{int((after - end).total_seconds() // 60)} min" if after else "open"
-        lines.append(f"  {i}. {fmt(t)} [{window}] ({minutes} min) - gap before: {gb}, after: {ga}")
+        note = (notes or {}).get(t)
+        lines.append(f"  {i}. {fmt(t)} [{window}{' - ' + note if note else ''}] ({minutes} min)"
+                     f" - gap before: {gb}, after: {ga}")
     return "\n".join(lines)
 
 
@@ -110,7 +116,7 @@ def agent_turn(me, other, activity, know, context, round_no, last=None, n=3):
             "reasoning_content": out["reasoning"], "reply": out["reply"]}
 
 
-def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=print):
+def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=print, notes=None):
     """Proposer's agent picks first, the other accepts or counters, up to
     MAX_ROUNDS rounds; then the best combined rank wins.
     `slots` = [(start, window)]. Returns {"agreed_index", "how", "turns", "ranked"}
@@ -119,7 +125,7 @@ def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=
     if n == 1:
         log("  Only one shared slot, nothing to negotiate.")
         return {"agreed_index": 0, "how": "only one shared slot", "turns": [], "ranked": [0]}
-    ctx = {p["name"]: calendar_context(busy_by_cal[p["calendar_id"]], slots, minutes)
+    ctx = {p["name"]: calendar_context(busy_by_cal[p["calendar_id"]], slots, minutes, notes)
            for p in (proposer, other)}
     turns, rankings, last, agreed, how = [], {}, None, None, None
     order = [proposer, other]

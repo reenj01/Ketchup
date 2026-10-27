@@ -27,21 +27,29 @@ Everything is asked and answered by voice.
 1. **Tap.** Both pebbles are tapped together after someone says a plan.
 2. **Nudge.** Both pebbles say e.g. "Mayo and Frankie want to catch up Thursday!"
 3. **Morning, noon, or night?** Each pebble asks its person. Windows live in
-   `config/settings.json`: morning 8:00–11:30 AM, noon 11:30 AM–2:30 PM,
-   night 5:00–9:00 PM (ET). If someone doesn't answer within 30 s, their agent
-   uses the habit it inferred from that person's own calendar.
+   `config/settings.json`, with no gaps between them: morning 8:00–11:59 AM,
+   noon 12:00–4:59 PM, night 5:00–9:00 PM (ET). A slot belongs to the window it
+   starts in, and must end by 9 PM, so the last 30-min start is 8:30 PM. If someone
+   doesn't answer within 30 s, their agent uses the habit it inferred from that
+   person's own calendar.
 4. **Agents pick a time.** Each person's agent shares only their free windows with
-   the other agent (times, never event titles). If the answers differ, the agents
-   look at the windows in between too (morning + night also searches noon) and
-   negotiate a fair slot. No shared slot means they look at next week.
+   the other agent (times, never event titles). Answers are **soft preferences**:
+   slots in the asked-for window rank first (other windows stay on the list as
+   next-best options for "change"). If nothing there works for both, slots
+   in the other windows the same day are offered instead, nearest first, and everyone
+   is told plainly ("Nothing worked at noon on Thursday, so how about Thu Oct 29 at
+   10:00 AM?"). Different answers (morning vs night): noon, the middle, ranks first.
+   Next week only if nothing works in any window on the plan's dates.
 5. **Want to change it?** Both pebbles ask "How about Thu Oct 29 at 12:30 PM? Want to
-   change it?" "Change" from either person offers the next-best option, up to 2 times.
+   change it?" (each pebble says why if it's a fallback or a middle ground for its person).
+   "Change" from either person offers the next-best option, up to 2 times.
    It's booked on both calendars only when **both** say keep.
 
 **Hard rule:** a proposed meeting always leaves at least 30 minutes free before and
 after every event on either calendar (`buffer_min` in `config/settings.json`). This is
 enforced in code before the agents see any option, so 7:30 PM is never offered when
-there's an event at 8 PM. Check it: `.venv/bin/python tests/test_slots.py`
+there's an event at 8 PM. Check it, along with the windows and the noon-blocked
+fallback: `.venv/bin/python tests/test_slots.py`
 
 Voice answers are mapped by Muse Spark Open, so "ugh, mornings are rough, evening
 please" becomes `night` and "can we do a different time?" becomes `change`. A plain
@@ -64,21 +72,21 @@ export BASETEN_API_KEY=... META_API_KEY=... GOOGLE_SA_JSON="$(cat service-accoun
 - `--dry-run`: never book. `--pick N`: manual override that books option N.
 - Anything not given on the command line is asked interactively. Press Enter for no answer.
 
-Real run (Mayo didn't answer, Frankie said "lunchtime works for me"):
+- `--extra-busy tests/fixtures/noon_blocked_thu.json`: add synthetic busy blocks for a
+  dry run (never written to a calendar), e.g. to force a fallback.
+
+Real dry run where both said noon and synthetic blocks fill Thursday's noon:
 
 ```
-  Frankie said "lunchtime works for me" -> noon
-  Mayo didn't answer -> agent uses calendar habit: night
-Searching noon 11:30 AM-2:30 PM, night 5:00 PM-9:00 PM (always 30 min clear of other events)
-  Mayo's agent shares free time: Thu 8:00 AM-7:30 PM
-  Frankie's agent shares free time: Thu 8:00 AM-10:30 AM; Thu 12:30 PM-9:00 PM
-Options both are free for:
-  1. Thu Oct 29, 12:30 PM ET [noon]
-  2. Thu Oct 29, 6:30 PM ET [night]
+Preferred: noon 12:00 PM-4:59 PM; other windows only if nothing fits (always 30 min clear of other events)
+  (dry run with synthetic busy blocks added: Mayo Thu 12:00 PM-2:00 PM; Frankie Thu 2:30 PM-5:00 PM)
+Options both are free for, best fit first:
+  1. Thu Oct 29, 5:30 PM ET [night] (fallback, Mayo: nothing worked at noon on Thursday; ...)
+  2. Thu Oct 29, 10:00 AM ET [morning] (fallback, Mayo: nothing worked at noon on Thursday; ...)
 Agents negotiating:
-  [round 1] Mayo's agent proposes slot 1 (Thu Oct 29, 12:30 PM ET, noon): Honoring Frankie's spoken noon preference with great buffer for both.
-  [round 1] Frankie's agent accepts slot 1 (Thu Oct 29, 12:30 PM ET, noon): Perfectly matches Frankie's spoken noon preference!
-Both pebbles say: "How about Thu Oct 29 at 12:30 PM? Want to change it?"
+  [round 1] Mayo's agent proposes slot 2 (Thu Oct 29, 10:00 AM ET, morning): Nothing worked at noon, so how about 10 AM Thursday?
+  [round 1] Frankie's agent accepts slot 2 (Thu Oct 29, 10:00 AM ET, morning): Nothing worked at noon, so how about 10 AM Thursday?
+Both pebbles say: "Nothing worked at noon on Thursday, so how about Thu Oct 29 at 10:00 AM? Want to change it?"
 ```
 
 ### The agents
@@ -119,13 +127,13 @@ The pebbles talk to a small standard-library server.
 
 ## Files
 
-- `config/settings.json`: time windows, the 30 min buffer, answer timeout, max change rounds.
+- `config/settings.json`: the day (8 AM–9 PM), time windows, the 30 min buffer, answer timeout, max change rounds.
 - `config/people.json`: each person's name, calendar and pebble device id.
 - `brain/parse_plan.py`: Muse Spark Open turns the phrase into a plan (activity, date window, 30 min default). Falls back to Meta's `muse-spark-1.3`.
-- `brain/calendar_slots.py`: free/busy, the 30 min buffer rule, each person's free windows, one candidate per day and window.
+- `brain/calendar_slots.py`: free/busy, the 30 min buffer rule, each person's free windows, one candidate per day and window ranked by fit to the answers, fallback notes.
 - `brain/infer_prefs.py`: infers each person's habits from their own calendar.
 - `brain/agents.py`: the two agents and the negotiation.
 - `brain/flow.py`: the session state machine (nudge, questions, voice answer mapping, proposal, keep/change, booking), used by the CLI and the server.
 - `brain/book.py`: puts the same event on each calendar (via a Google service account both calendars are shared with, so nobody signs in).
-- `tests/test_slots.py`: checks the 30 min rule.
+- `tests/test_slots.py`: checks the 30 min rule, the windows, and the same-day fallback when noon is blocked.
 - `traces/`: one JSON per run with every step: the plan, free/busy, inferred profiles (input facts, model reasoning, JSON), each answer and how it was mapped, shared free windows, every agent turn, each keep/change, and the created events.
