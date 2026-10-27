@@ -3,8 +3,9 @@
 When the agents agree, the event goes on both calendars as a hold (Google
 event status "tentative", title ending " (tentative)"). It stays tentative
 until both people keep it, someone changes it, or the deadline passes:
-11:59 PM ET on the day the hold was made, or 30 min before the event starts
-if that is sooner. At the deadline nobody said anything, so it's confirmed.
+10 PM ET (`hold_confirm_at`) if the hold was made before 10 PM, else 11:59 PM
+that same night (`hold_late_confirm_at`); 30 min before the event starts if
+that is sooner. At the deadline nobody said anything, so it's confirmed.
 
 Sessions live in memory, so holds are saved in state/holds.json (gitignored).
 Each server runs `start_timer()`: it sweeps at startup and every
@@ -32,23 +33,35 @@ from timing import timed
 
 STORE = Path(__file__).parent.parent / "state" / "holds.json"
 CONFIRM_AT = time.fromisoformat(SETTINGS["hold_confirm_at"])
+LATE_CONFIRM_AT = time.fromisoformat(SETTINGS["hold_late_confirm_at"])
 LEAD = timedelta(minutes=SETTINGS["hold_lead_min"])
 LISTENERS = {}  # hold id -> fn(record), live sessions in this process
 _calendar = None  # set by start_timer: () -> Google client
 
 
 def deadline_for(made: datetime, start: datetime) -> datetime:
-    """11:59 PM ET the day the hold was made, or 30 min before it starts if sooner."""
-    eod = datetime.combine(made.astimezone(TZ).date(), CONFIRM_AT, tzinfo=TZ)
-    return min(eod, start - LEAD)
+    """10 PM ET if the hold was made before 10 PM, else 11:59 PM that same night
+    (no next-day rollover; made at 11:59 PM -> confirmed then). 30 min before it
+    starts if that is sooner."""
+    m = made.astimezone(TZ)
+    cut = datetime.combine(m.date(), CONFIRM_AT, tzinfo=TZ)
+    if m >= cut:
+        cut = datetime.combine(m.date(), LATE_CONFIRM_AT, tzinfo=TZ)
+    return min(cut, start - LEAD)
+
+
+def clock(d: datetime) -> str:
+    """'10 PM', '5:30 PM'."""
+    return f"{d:%-I %p}" if d.minute == 0 else f"{d:%-I:%M %p}"
 
 
 def deadline_text(deadline: datetime, made: datetime) -> str:
-    """'tonight at 11:59 PM' or 'at 4:30 PM, 30 min before it starts'."""
+    """'tonight at 10 PM', 'tonight at 11:59 PM', or 'tonight at 5:30 PM, 30 min before it starts'."""
     d, m = deadline.astimezone(TZ), made.astimezone(TZ)
-    if d.time() == CONFIRM_AT:
-        return f"tonight at {d:%-I:%M %p}" if d.date() == m.date() else f"at {d:%-I:%M %p} on {d:%a %b %-d}"
-    return f"at {d:%-I:%M %p}, 30 min before it starts"
+    days = (d.date() - m.date()).days
+    day = ("tonight" if d.hour >= 17 else "today") if days == 0 else "tomorrow" if days == 1 else f"on {d:%a %b %-d}"
+    lead = "" if d.time() in (CONFIRM_AT, LATE_CONFIRM_AT) else ", 30 min before it starts"
+    return f"{day} at {clock(d)}{lead}"
 
 
 @contextmanager

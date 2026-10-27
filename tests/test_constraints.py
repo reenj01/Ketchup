@@ -64,23 +64,31 @@ assert fix_backup(dict(r, backup=2), s, set(), "morning", "morning") == (2, None
 assert fix_backup(dict(r, backup=3), s, {3}, "morning", "morning")[0] == 2        # 3 was offered
 
 # ---- deadlines ------------------------------------------------------------------
-made = datetime(2026, 10, 27, 15, 48, tzinfo=TZ)
-assert holds.deadline_for(made, REF) == datetime(2026, 10, 27, 23, 59, tzinfo=TZ)
-soon = datetime(2026, 10, 27, 18, 0, tzinfo=TZ)
+made = datetime(2026, 10, 27, 15, 0, tzinfo=TZ)                    # hold at 3 PM -> 10 PM
+assert holds.deadline_for(made, REF) == datetime(2026, 10, 27, 22, 0, tzinfo=TZ)
+assert holds.deadline_text(holds.deadline_for(made, REF), made) == "tonight at 10 PM"
+late = datetime(2026, 10, 27, 22, 30, tzinfo=TZ)                   # hold at 10:30 PM -> 11:59 PM same night
+assert holds.deadline_for(late, REF) == datetime(2026, 10, 27, 23, 59, tzinfo=TZ)
+assert holds.deadline_text(holds.deadline_for(late, REF), late) == "tonight at 11:59 PM"
+at10 = datetime(2026, 10, 27, 22, 0, tzinfo=TZ)                    # exactly 10 PM counts as late
+assert holds.deadline_for(at10, REF) == datetime(2026, 10, 27, 23, 59, tzinfo=TZ)
+at1159 = datetime(2026, 10, 27, 23, 59, tzinfo=TZ)                 # made at 11:59 PM -> confirmed then
+assert holds.deadline_for(at1159, REF) == at1159
+soon = datetime(2026, 10, 27, 18, 0, tzinfo=TZ)                    # event 6 PM same day, held at 3 PM
 assert holds.deadline_for(made, soon) == datetime(2026, 10, 27, 17, 30, tzinfo=TZ)
-assert holds.deadline_text(holds.deadline_for(made, REF), made) == "tonight at 11:59 PM"
-assert holds.deadline_text(holds.deadline_for(made, soon), made) == "at 5:30 PM, 30 min before it starts"
+assert holds.deadline_text(holds.deadline_for(made, soon), made) == "tonight at 5:30 PM, 30 min before it starts"
 
 # ---- hold store (dry run: no calendar), idempotent sweep ---------------------------
 with tempfile.TemporaryDirectory() as d:
     holds.STORE = Path(d) / "holds.json"
     people = [{"name": "Mayo", "calendar_id": "m"}, {"name": "Frankie", "calendar_id": "f"}]
     h = holds.create(None, people, REF, 30, "catch up", "s1", "test", True, made)
-    assert h["status"] == "tentative" and holds.get(h["id"])["deadline"].startswith("2026-10-27T23:59")
+    assert h["status"] == "tentative" and holds.get(h["id"])["deadline"].startswith("2026-10-27T22:00")
     assert holds.sweep(now=made + timedelta(hours=1)) == []            # not due yet
     heard = []
     holds.LISTENERS[h["id"]] = heard.append
-    done = holds.sweep(now=datetime(2026, 10, 28, 0, 0, tzinfo=TZ))   # past 11:59 PM
+    assert holds.sweep(now=datetime(2026, 10, 27, 21, 59, tzinfo=TZ)) == []  # 9:59 PM: not yet
+    done = holds.sweep(now=datetime(2026, 10, 27, 22, 0, tzinfo=TZ))   # 10 PM
     assert [x["id"] for x in done] == [h["id"]] and heard and heard[0]["why"] == "no reply by the deadline"
     assert holds.get(h["id"])["status"] == "confirmed"
     assert holds.sweep(now=datetime(2026, 10, 28, 0, 1, tzinfo=TZ)) == []  # confirmed once only

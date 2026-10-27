@@ -13,7 +13,7 @@ API
   POST /api/session/<id>/skip_to_end_of_day  {}  -> confirm the tentative hold now
 
 Agreed times are tentative holds (brain/holds.py, state/holds.json). A timer
-confirms each one at its deadline (11:59 PM ET, or 30 min before it starts),
+confirms each one at its deadline (10 PM ET, 11:59 PM if held after 10 PM, or 30 min before it starts),
 every hold_sweep_s seconds and once at startup.
     python web/server.py --skip-to-end-of-day   # confirm every open hold now, then exit
 """

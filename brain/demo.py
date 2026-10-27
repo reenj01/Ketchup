@@ -15,7 +15,7 @@
 Answers can be keywords or anything a person might say out loud.
 An agreed time is pencilled in as a tentative hold. Without
 --skip-to-end-of-day, a hold nobody answers stays tentative and the web or tap
-server's timer confirms it at the deadline (11:59 PM ET).
+server's timer confirms it at the deadline (10 PM ET, or 11:59 PM if held after 10 PM).
 --confirm sets both people's keep/change per round (comma list, or | when a
 reply has commas: "keep|not thursday, something later");
 --mayo-confirm / --frankie-confirm set one person's.

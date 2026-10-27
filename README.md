@@ -47,10 +47,11 @@ Everything is asked and answered by voice.
 6. **Pencil it in.** A **tentative** event goes on both calendars right away (Google
    event status `tentative`, title ending "(tentative)"), and both pebbles say "How about
    Fri Oct 30 at 10:30 AM? I've pencilled it in. If I don't hear from you, it's confirmed
-   tonight. Want to change it?"
+   tonight at 10 PM. Want to change it?"
 7. **Confirm.** A keep confirms it for that person. The plan is confirmed when both keep
-   it, or at the deadline: 11:59 PM ET on the day the hold was made, or 30 min before the
-   meeting if that's sooner. Confirming patches both events to `confirmed` and drops the
+   it, or at the deadline: 10 PM ET if the hold was made before 10 PM, otherwise 11:59 PM
+   that same night (`hold_confirm_at` / `hold_late_confirm_at` in `config/settings.json`),
+   or 30 min before the meeting if that's sooner. Confirming patches both events to `confirmed` and drops the
    "(tentative)" marker; each pebble says "Plan booked with Frankie."
 8. **Change, with a reason.** "Not Thursday, something later" is read into constraints
    (keyword fast path, Muse Spark Open for anything else): not a day, only a day, later or
@@ -158,7 +159,8 @@ Open maps the answers and runs both agents, and both real calendars are read.
 
 **Dry run (don't touch calendars)** is on by default. Turn it off to really book.
 While a hold is pencilled in, the middle column shows a **Tentative** badge, "Tentative,
-confirms tonight at 11:59 PM unless someone changes it", who kept it, the backup slot,
+confirms tonight at 10 PM unless someone changes it" (or "tonight at 11:59 PM" for a
+hold made after 10 PM), who kept it, the backup slot,
 and a **Skip to end of day** button that runs the deadline now.
 
 ### Run it on a Mac (first time)
@@ -205,7 +207,7 @@ Stop it with Ctrl+C. Use `--port 9000` if 8000 is taken. The macOS built-in `pyt
 3. It pencils in a tentative event on both calendars (unless dry run) with the agreed
    backup, and each agent says "Frankie and you are free on <day> at <time>. I've
    pencilled it in your calendar (tentative). If I don't hear from you, it's confirmed
-   tonight at 11:59 PM. Do you want a different day or time?"
+   tonight at 10 PM. Do you want a different day or time?"
 4. "No" keeps it for that person. A reason ("not thursday, something later") becomes hard
    constraints; the hold moves to the backup if it fits, otherwise the agents renegotiate
    under them. When both keep it, or at the deadline: "Plan booked with <other>."

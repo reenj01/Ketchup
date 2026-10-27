@@ -15,9 +15,9 @@ paired -> asking_time_of_day -> proposing -> pencilled_in -> booked | failed
    They agree a backup slot in the same turns.
 4. The slot goes on both calendars as a tentative hold (holds.py) and both
    pebbles say "How about Thu Oct 29 at 12:00 PM? I've pencilled it in. If I
-   don't hear from you, it's confirmed tonight. Want to change it?"
+   don't hear from you, it's confirmed tonight at 10 PM. Want to change it?"
    keep -> kept (both kept = confirmed now). Silence -> confirmed at the
-   deadline (11:59 PM ET, or 30 min before it starts if sooner).
+   deadline (10 PM ET, or 11:59 PM if held at/after 10 PM; 30 min before it starts if sooner).
    change + reason ("not thursday, something later") -> hard constraints
    (constraints.py): the backup if it fits, else the agents renegotiate under
    them. Offered times are never offered again. At most 2 changes.
@@ -391,7 +391,7 @@ class Session:
                  + f"); confirms {self.result['hold']['deadline_text']} unless someone changes it.")
         self.confirms = {}
         self.set_state("pencilled_in")
-        when = "tonight" if dl.time() == holds.CONFIRM_AT else f"at {hm(dl)}"
+        when = self.result["hold"]["deadline_text"]
         self.ask("confirm", {p["device_id"]: f"{(lead or {}).get(p['device_id'], '')}{self.proposal_line(p, t)} "
                  f"I've pencilled it in. If I don't hear from you, it's confirmed {when}. {Q_CHANGE}"
                  for p in self.people})

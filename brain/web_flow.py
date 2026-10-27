@@ -12,7 +12,7 @@ Flow (RJ's wording):
    negotiate the day and time, and a backup slot in the same turns.
 3. Pencil it in on both calendars as a tentative hold (holds.py) and ask
    "Do you want a different day or time?". "No" = kept. Both kept -> confirmed
-   now. Nobody answers -> confirmed at the deadline (11:59 PM ET that day, or
+   now. Nobody answers -> confirmed at the deadline (10 PM ET, 11:59 PM if held after 10 PM, or
    30 min before it starts if sooner); "Skip to end of day" runs that now.
 4. "Yes / not Thursday, something later" -> the reason becomes hard
    constraints (constraints.py). If the backup fits them, the hold moves

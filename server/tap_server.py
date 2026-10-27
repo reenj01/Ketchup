@@ -15,7 +15,7 @@ Both pebbles are the same: mic + speaker. They:
    Every answer response has "say": the text to speak back right away.
    GET /sessions/<id> has "speak": {device_id: text to say now}.
 4. After the agents agree, the time is a tentative hold on both calendars.
-   It confirms when both keep it, or at the deadline (11:59 PM ET that day,
+   It confirms when both keep it, or at the deadline (10 PM ET that day,
    or 30 min before it starts). A timer checks deadlines every
    hold_sweep_s and at startup (state/holds.json, idempotent).
    POST /sessions/<id>/skip_to_end_of_day {} confirms that hold now (demo).
