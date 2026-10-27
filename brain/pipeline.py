@@ -10,6 +10,7 @@ from agents import fmt, negotiate
 from book import book
 from calendar_slots import freebusy, free_slots, pick_spread
 from gcal import PEOPLE, calendar
+from infer_prefs import infer_prefs
 from parse_plan import TZ, parse_plan
 
 TRACES = Path(__file__).parent.parent / "traces"
@@ -63,9 +64,16 @@ def run(phrase, proposer="mayo", pick=None, dry_run=False, log=print, source="cl
             trace["agreement"] = {"how": f"manual override --pick {pick}"}
             log(f"Manual pick: slot {pick}")
         else:
+            log("Each agent reads its own person's calendar habits:")
+            trace["inferred_profiles"] = [infer_prefs(cal, p, now) for p in people]
+            profiles = {}
+            for inf in trace["inferred_profiles"]:
+                pr = profiles[inf["person"]] = inf["profile"]
+                log(f"  {inf['person']}: {pr['time_of_day_preference']}, buffer "
+                    f"{pr['min_buffer_min']} min, confidence {pr['confidence']}: {pr['summary']}")
             log("Agents negotiating:")
             result = negotiate(people[0], people[1], plan["activity"], offers, busy,
-                               plan["duration_min"], log=log)
+                               plan["duration_min"], profiles, log=log)
             choice = offers[result["agreed_index"]]
             trace["agent_turns"] = result.pop("turns")
             trace["agreement"] = result

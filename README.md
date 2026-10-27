@@ -45,8 +45,15 @@ Agreed: Thu Oct 29, 3:00 PM ET (agreed in round 2)
 ### Two agents that negotiate
 
 - One Muse Spark Open agent per person (`brain/agents.py`). Each sees only its own
-  person's preferences (`config/people.json`) and its own calendar around each slot,
-  never the other person's calendar.
+  person's inferred preferences and its own calendar around each slot, never the
+  other person's calendar.
+- Nobody types preferences. Each run, `brain/infer_prefs.py` gives Muse Spark Open the
+  facts of that person's own calendar (timed events from 4 weeks back to 2 weeks ahead,
+  counts by time of day, gaps between same-day events). The model infers a profile:
+  morning/afternoon/evening or no clear pattern, preferred hours, the break they keep
+  between events, confidence and evidence. Thin data gives low confidence. Agents
+  rank slots with it, and a slot with less than the usual break next to an event ranks lower.
+  Try it: `.venv/bin/python brain/infer_prefs.py mayo frankie`
 - The person who said the phrase goes first: their agent ranks the slots and proposes one
   with a one-line reason. The other agent accepts or counters. Up to 2 rounds; if they
   still disagree, the slot with the best combined rank wins. No shared time: look at next week.
@@ -73,7 +80,8 @@ The pebbles call a tiny standard-library server when they are tapped together.
 
 - `brain/parse_plan.py`: Muse Spark Open turns the phrase into a plan (activity, date window, 30 min default). Falls back to Meta's `muse-spark-1.3`.
 - `brain/calendar_slots.py`: free/busy for both calendars, 9 AM–9 PM ET, never in the past; offers the earliest, middle and latest shared slot.
+- `brain/infer_prefs.py`: infers each person's preferences from their own calendar.
 - `brain/agents.py`: the two agents and the negotiation.
 - `brain/pipeline.py`: phrase -> plan -> slots -> negotiation -> booking, used by the CLI and the server.
 - `brain/book.py`: puts the same event on each calendar (via a Google service account both calendars are shared with, so nobody signs in).
-- `traces/`: one JSON per run with the phrase, the plan, free/busy, the candidate slots, every agent turn (prompt, model reasoning, JSON reply), the agreement and the created events.
+- `traces/`: one JSON per run with the phrase, the plan, free/busy, the candidate slots, each inferred profile (input facts, model reasoning, JSON), every agent turn (prompt, model reasoning, JSON reply), the agreement and the created events.

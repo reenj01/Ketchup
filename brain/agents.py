@@ -1,6 +1,6 @@
 """One Muse Spark Open agent per person, and the negotiation between them.
 
-Each agent sees only its own person's preferences and calendar (busy blocks
+Each agent sees only its own person's inferred preferences and calendar (busy blocks
 on the candidate days, plus the free gap around each slot). It never sees the
 other person's calendar, only the other agent's pick and one-line reason.
 """
@@ -17,7 +17,8 @@ time slots when BOTH are free. Your job: get the slot that is best for {name},
 while being reasonable so the two of you agree quickly.
 
 What you know about {name} (keep it private, don't invent more):
-- Preferences: {prefs}
+- Preferences inferred from {name}'s own calendar patterns:
+{profile}
 - {name}'s own calendar is given below. You cannot see {other}'s calendar.
 
 Reply with strict JSON only, no prose, no code fences:
@@ -26,6 +27,8 @@ Reply with strict JSON only, no prose, no code fences:
   "pick": slot number you want,
   "reason": "one short sentence, friendly, under 20 words"}}
 Rules:
+- Rank with the inferred preferences, weighted by their confidence. A slot
+  whose gap before or after is smaller than min_buffer_min is worse.
 - "propose" only when you go first. Otherwise "accept" (pick = the other
   agent's pick) or "counter" (pick = a different slot).
 - Accept if the other pick is fine for {name}, even if not the very best.
@@ -72,10 +75,10 @@ def _checker(n, first, offered):
     return check
 
 
-def agent_turn(me, other, activity, context, round_no, last=None, n=3):
+def agent_turn(me, other, activity, context, round_no, profiles, last=None, n=3):
     """One agent move. `last` is the other agent's latest {pick, reason} or None."""
     system = SYSTEM.format(name=me["name"], other=other["name"], activity=activity,
-                           prefs=me["prefs"])
+                           profile=json.dumps(profiles[me["name"]], indent=2))
     user = f"{me['name']}'s calendar:\n{context}\n\n"
     if last is None:
         user += "You go first. Propose the slot you want."
@@ -92,8 +95,9 @@ def agent_turn(me, other, activity, context, round_no, last=None, n=3):
             "reasoning_content": out["reasoning"], "reply": out["reply"]}
 
 
-def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, log=print):
-    """Proposer's agent picks first, the other accepts or counters, up to
+def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, profiles, log=print):
+    """`profiles` maps name -> that person's inferred profile (infer_prefs.py).
+    Proposer's agent picks first, the other accepts or counters, up to
     MAX_ROUNDS rounds; then the best combined rank wins. Returns
     {"agreed_index", "how", "turns", "combined_rank"}."""
     n = len(slots)
@@ -108,7 +112,7 @@ def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, log=print)
     for round_no in range(1, MAX_ROUNDS + 1):
         for i, me in enumerate(order):
             them = order[1 - i]
-            t = agent_turn(me, them, activity, ctx[me["name"]], round_no, last, n)
+            t = agent_turn(me, them, activity, ctx[me["name"]], round_no, profiles, last, n)
             turns.append(t)
             r = t["reply"]
             rankings[me["name"]] = r["ranking"]

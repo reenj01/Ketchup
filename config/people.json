@@ -2,13 +2,11 @@
   "mayo": {
     "name": "Mayo",
     "calendar_id": "mayoforketchup@gmail.com",
-    "device_id": "pebble-mayo",
-    "prefs": "Morning person. Loves meeting before noon, gets tired after 6 PM. Likes a little buffer around other meetings."
+    "device_id": "pebble-mayo"
   },
   "frankie": {
     "name": "Frankie",
     "calendar_id": "frankieforketchup@gmail.com",
-    "device_id": "pebble-frankie",
-    "prefs": "Not a morning person, slow before 10 AM. Avoids late nights (nothing after 8 PM). Afternoons are her favorite."
+    "device_id": "pebble-frankie"
   }
 }
