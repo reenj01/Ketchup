@@ -29,15 +29,12 @@ Rules:
 - duration_min defaults to 30 when not said."""
 
 
-def _call(url, model, key_env, text, now):
+def _call(url, model, key_env, system, user, max_tokens):
     body = json.dumps({
         "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": f"Today is {now:%A %Y-%m-%d}, {now:%H:%M} "
-                                        f"America/New_York.\nPhrase: {text}"},
-        ],
-        "max_tokens": 4000,
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": user}],
+        "max_tokens": max_tokens,
     }).encode()
     req = urllib.request.Request(url, data=body, headers={
         "Authorization": f"Bearer {os.environ[key_env]}",
@@ -51,21 +48,37 @@ def _call(url, model, key_env, text, now):
     return json.loads(content), message.get("reasoning_content")
 
 
-def parse_plan(text: str, now: datetime | None = None) -> dict:
-    """Returns {"plan", "reasoning", "model", "errors"}. Tries Baseten, then Meta."""
-    now = now or datetime.now(TZ)
+def ask_json(system: str, user: str, check=None, max_tokens=4000) -> dict:
+    """Ask Muse Spark Open for a strict-JSON reply; fall back to Meta's API.
+
+    `check(reply)` may raise to reject a malformed reply (it is retried).
+    Returns {"reply", "reasoning", "model", "errors"}.
+    """
     errors = []
     for url, model, key_env, tries in (BASETEN + (2,), META + (3,)):
         for attempt in range(tries):
             try:
-                plan, reasoning = _call(url, model, key_env, text, now)
-                plan["duration_min"] = int(plan.get("duration_min") or 30)
-                return {"plan": plan, "reasoning": reasoning, "model": model,
+                reply, reasoning = _call(url, model, key_env, system, user, max_tokens)
+                if check:
+                    check(reply)
+                return {"reply": reply, "reasoning": reasoning, "model": model,
                         "errors": errors}
-            except Exception as e:  # network, HTTP, or bad JSON: try again / fall back
+            except Exception as e:  # network, HTTP, bad JSON or bad shape: retry / fall back
                 errors.append(f"{model} attempt {attempt + 1}: {type(e).__name__}: {e}")
                 time.sleep(1)
     raise RuntimeError("Both brains failed: " + " | ".join(errors))
+
+
+def parse_plan(text: str, now: datetime | None = None) -> dict:
+    """Returns {"plan", "reasoning", "model", "errors"}."""
+    now = now or datetime.now(TZ)
+    user = (f"Today is {now:%A %Y-%m-%d}, {now:%H:%M} America/New_York.\n"
+            f"Phrase: {text}")
+    out = ask_json(SYSTEM, user)
+    plan = out["reply"]
+    plan["duration_min"] = int(plan.get("duration_min") or 30)
+    return {"plan": plan, "reasoning": out["reasoning"], "model": out["model"],
+            "errors": out["errors"]}
 
 
 if __name__ == "__main__":
