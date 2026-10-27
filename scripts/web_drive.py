@@ -41,7 +41,10 @@ def main():
     ap.add_argument("--phrase", default="let's catch up Thursday or Friday")
     ap.add_argument("--mayo", nargs=2, default=["mornings", "1 hour"], metavar=("TIME", "LENGTH"))
     ap.add_argument("--frankie", nargs=2, default=["mornings", "30 min"], metavar=("TIME", "LENGTH"))
-    ap.add_argument("--change", default="not thursday, something later", help="Mayo's change reason")
+    ap.add_argument("--change", action="append", default=None,
+                    help="Mayo's change reason; repeat for several changes in a row "
+                         "(default: one, \"not thursday, something later\")")
+    ap.add_argument("--both-keep", action="store_true", help="Frankie keeps it too instead of the skip")
     ap.add_argument("--no-change", action="store_true", help="Mayo keeps the first hold")
     ap.add_argument("--out", default="", help="write timings + messages as JSON here")
     a = ap.parse_args()
@@ -89,16 +92,22 @@ def main():
     wait(sid, asked)
     mark("pencilled_ask")
     shot("3-pencilled-in")
-    if not a.no_change:
-        say("mayo", a.change)
+    rounds = []
+    for i, reason in enumerate([] if a.no_change else (a.change or ["not thursday, something later"]), 1):
+        before = call(f"/api/session/{sid}")["slot"]
+        say("mayo", reason)
         mark("change_asked")
-        wait(sid, lambda s: s["change_round"] == 1 and asked(s) and (s["hold"] or {}).get("status") == "tentative")
+        s = wait(sid, lambda s, i=i: s["change_round"] == i and asked(s) and (s["hold"] or {}).get("status") == "tentative")
         mark("moved_ask")
+        rounds.append({"change": i, "mayo_said": reason, "from": before, "to": s["slot"], "backup": s["backup"]})
+        print(f"CHANGE {i}: \"{reason}\": {before} -> {s['slot']} (backup {s['backup']})")
     say("mayo", "no, keep it")
     wait(sid, lambda s: "mayo" not in s["waiting_for"])
     shot("4-changed-kept")
     mark("skip")  # Frankie stays silent; end the day now
-    if page:
+    if a.both_keep:
+        say("frankie", "keep it")
+    elif page:
         page.click("#skip")
     else:
         call(f"/api/session/{sid}/skip_to_end_of_day", {})
@@ -116,7 +125,7 @@ def main():
               "whole_session": seg("pressed", "done"), "calls": s["timing"]}
     print("TIMING", json.dumps(timing))
     if a.out:
-        Path(a.out).write_text(json.dumps({"timing": timing, "messages": s["messages"]}, indent=1))
+        Path(a.out).write_text(json.dumps({"timing": timing, "rounds": rounds, "messages": s["messages"]}, indent=1))
     print(f"state {s['state']}  slot {s['slot']}  backup {s['backup']}  hold {s['hold']}  trace {s['trace_file']}")
     for m in s["messages"]:
         who = m["who"] if m["channel"] == "middle" else (m["channel"] + ("" if m["who"] == "user" else "'s agent"))

@@ -53,7 +53,7 @@ assert all(window_of(t) == "night" for t in slots if why_not(c, t) is None)
 # constraints add up across changes: "not thursday" then "evening" keeps both
 both = merge(kw("not thursday")[1], kw("in the evening")[1])
 assert THU in both["not_days"] and both["windows"] == ["night"]
-assert followed(both, datetime(2026, 10, 30, 18, tzinfo=TZ)) == "it's on Friday, it's in the night"
+assert followed(both, datetime(2026, 10, 30, 18, tzinfo=TZ)) == "it's on Friday, it's at night"
 
 # ---- backup: never the pick, never offered before, another day when possible --
 s = [(datetime(2026, 10, 29, 10, 30, tzinfo=TZ), "morning"), (datetime(2026, 10, 29, 11, tzinfo=TZ), "morning"),

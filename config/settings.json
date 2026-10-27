@@ -19,11 +19,14 @@
     ]
   },
   "answer_timeout_s": 30,
-  "max_change_rounds": 2,
+  "search_horizon_weeks": 8,
   "max_candidates": 6,
   "reasoning_effort": "low",
   "hold_confirm_at": "22:00",
   "hold_late_confirm_at": "23:59",
   "hold_lead_min": 30,
+  "length_step_min": 5,
+  "length_min": 15,
+  "length_max": 240,
   "hold_sweep_s": 30
 }

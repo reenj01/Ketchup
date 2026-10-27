@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from lengths import clean
 from timing import record
 
 TZ = ZoneInfo("America/New_York")
@@ -128,7 +129,7 @@ def parse_plan(text: str, now: datetime | None = None) -> dict:
             f"Phrase: {text}")
     out = ask_json(SYSTEM, user)
     plan = out["reply"]
-    plan["duration_min"] = int(plan.get("duration_min") or 30)
+    plan["duration_min"] = clean(plan.get("duration_min") or 30)  # multiple of 5, rounded down
     return {"plan": plan, "reasoning": out["reasoning"], "model": out["model"],
             "errors": out["errors"]}
 

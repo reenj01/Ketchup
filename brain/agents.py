@@ -7,6 +7,7 @@ agent: times only, no event details).
 """
 import json
 
+from lengths import STEP, clean, fix_text, middle
 from parse_plan import ask_json
 
 MAX_ROUNDS = 2
@@ -269,16 +270,15 @@ prefer to meet?", {name} wants {mine} minutes and {other} wants {theirs} minutes
 Agree on one meeting length with {other}'s agent.
 Reply with strict JSON only, no prose, no code fences:
 {{"decision": "propose" | "accept" | "counter",
-  "minutes": integer between {lo} and {hi},
+  "minutes": a multiple of {step} between {lo} and {hi},
   "reason": "one short sentence, friendly, under 20 words"}}
 Rules:
+- Minutes are always a clean multiple of {step}. Never split into an awkward
+  number: if it isn't a multiple of {step}, round DOWN (37 -> 35). The middle
+  ground of {mine} and {theirs} is {mid} min (the average rounded down), e.g.
+  "Let's meet in the middle at {mid} min." Any number in your reason must match.
 - A shorter meeting fits more calendars; a longer one honors who wants more time.
   Be fair, and settle quickly.
-- Backup: when you propose or counter, name a backup too. When you accept,
-  keep the other agent's backup if it works for {name}, or name a better one
-  nobody offered as a pick. Mention the backup briefly in your reason.
-- If the message says someone asked for a change, start your reason with how
-  you followed what they said, e.g. "You said not Thursday, so ...".
 - "propose" only when you go first. Otherwise "accept" (minutes = the other
   agent's minutes) or "counter" (different minutes)."""
 
@@ -287,6 +287,7 @@ def negotiate_length(proposer, other, activity, wants, log=print, on_turn=None, 
     """Agents agree on a meeting length. `wants` = {name: minutes}. Up to
     MAX_ROUNDS rounds; no deal -> the shorter length. Returns
     {"minutes", "how", "turns"}."""
+    wants = {n: clean(m) for n, m in wants.items()}
     a, b = wants[proposer["name"]], wants[other["name"]]
     if a == b:
         return {"minutes": a, "how": "both asked for the same length", "turns": []}
@@ -297,7 +298,8 @@ def negotiate_length(proposer, other, activity, wants, log=print, on_turn=None, 
         for i, me in enumerate(order):
             them = order[1 - i]
             system = LENGTH_SYSTEM.format(name=me["name"], other=them["name"], activity=activity,
-                                          mine=wants[me["name"]], theirs=wants[them["name"]], lo=lo, hi=hi)
+                                          mine=wants[me["name"]], theirs=wants[them["name"]], lo=lo, hi=hi,
+                                          step=STEP, mid=middle(lo, hi))
             if last is None:
                 user = "You go first. Propose a length."
             else:
@@ -307,8 +309,15 @@ def negotiate_length(proposer, other, activity, wants, log=print, on_turn=None, 
             def check(r, first=last is None, offered=last and last["minutes"]):
                 if r.get("decision") not in ({"propose"} if first else {"accept", "counter"}):
                     raise ValueError("bad decision")
-                if not isinstance(r.get("minutes"), int) or not lo <= r["minutes"] <= hi:
+                if not isinstance(r.get("minutes"), (int, float)) or not lo <= r["minutes"] <= hi:
                     raise ValueError(f"minutes must be {lo}-{hi}")
+                raw = r["minutes"]
+                r["minutes"] = max(lo, clean(raw))  # never an awkward number: round down to 5
+                if r["minutes"] != raw:
+                    r["minutes_raw"] = raw
+                r["reason"] = fix_text(r.get("reason"))
+                if r["decision"] == "counter" and r["minutes"] == offered:  # rounded onto the offer
+                    r["decision"] = "accept"
                 if r["decision"] == "accept" and r["minutes"] != offered:
                     raise ValueError("accept must use the offered minutes")
                 if r["decision"] == "counter" and r["minutes"] == offered:

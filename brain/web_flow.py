@@ -18,7 +18,8 @@ Flow (RJ's wording):
    constraints (constraints.py). If the backup fits them, the hold moves
    there right away and both are asked again; otherwise the hold is removed
    and the agents renegotiate under the constraint (offered times never come
-   back). At most max_change_rounds changes.
+   back). No cap on changes: it keeps finding new times, widening week by
+   week up to search_horizon_weeks, until both keep one.
 
 Same rules as the pebble flow (flow.py). All work runs on one worker thread
 per session, so the Google client is never shared between threads.
@@ -31,6 +32,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
 from agents import fmt, negotiate, negotiate_length
+from lengths import clean, fix_text
+from privacy import Neutral, finding
 import holds
 from constraints import describe, followed, merge, parse_change, why_not
 from calendar_slots import (SETTINGS, WINDOWS, at, candidates, fallback_note, free_slots, free_windows,
@@ -47,21 +50,33 @@ HABITS_LABEL = "reading calendar habits…"
 WINDOW_TEXT = ", ".join(f"{k} {hm(a)}-{hm(b)}" for k, (a, b) in WINDOWS.items())
 
 
+HOURS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3}
+
+
 def map_minutes(text):
-    """Free text -> meeting length in minutes (15-240), or None if unclear."""
+    """Free text -> meeting length in minutes, or None if unclear. Always a
+    multiple of 5, rounded down ("37 minutes" -> 35, "1 hr 22" -> 80)."""
+    res = _map_minutes(text)
+    return (clean(res[0]) if res[0] else res[0]), res[1], res[2]
+
+
+def _map_minutes(text):
     t = text.strip().lower().strip(".!?")
     if re.fullmatch(r"\d{1,3}", t):
         return int(t), "keyword", None
-    m = re.fullmatch(r"(\d{1,3})\s*(m|min|mins|minutes?)", t)
-    if m and 15 <= int(m[1]) <= 240:
-        return int(m[1]), "keyword", None
-    m = re.fullmatch(r"(an?|1|one|2|two)\s*(h|hr|hrs|hours?)", t)
+    m = re.fullmatch(r"(\d{1,3}(?:\.\d+)?)\s*(m|min|mins|minutes?)", t)
+    if m and 10 <= float(m[1]) <= 240:
+        return float(m[1]), "keyword", None
+    m = re.fullmatch(r"(\d(?:\.\d+)?|an?|one|two|three)\s*(?:h|hr|hrs|hours?)"
+                     r"(?:\s*(?:and\s*)?(\d{1,2})\s*(?:m|min|mins|minutes?)?)?", t)
     if m:
-        return (120 if m[1] in ("2", "two") else 60), "keyword", None
+        h = HOURS.get(m[1]) or float(m[1])
+        return h * 60 + int(m[2] or 0), "keyword", None
     if t in ("half an hour", "half hour", "30m"):
         return 30, "keyword", None
     system = ('A person was asked "How long do you prefer to meet?" and answered. '
-              "Turn it into a meeting length in whole minutes between 15 and 240 "
+              "Turn it into a meeting length in whole minutes between 15 and 240, "
+              "rounded down to a multiple of 5 "
               '("an hour" = 60, "half an hour" = 30, "quick" = 30). If it is not clear, use null. '
               'Reply with strict JSON only: {"minutes": integer or null}')
 
@@ -117,6 +132,8 @@ class WebSession:
                 return
 
     def post(self, channel, who, text, **extra):
+        if who != "user":
+            text = fix_text(text)  # lengths shown are always clean multiples of 5
         with self.lock:
             self.messages.append({"i": len(self.messages), "channel": channel, "who": who,
                                   "text": text, "at": datetime.now(TZ).strftime("%-I:%M:%S %p"), **extra})
@@ -287,7 +304,7 @@ class WebSession:
                                  "(say no to keep it, or what you'd like instead, e.g. \"not Thursday, later\")")
             self.answers[key]["change"] = choice
             self.open_q.pop(key)
-            if choice == "yes":
+            if choice == "yes" or not self.hold:  # no time on the table: any reply is a new ask
                 return self._change(key, text, cons, res["how"])
             self.kept.add(key)
             if all(k in self.kept for k in self.keys):
@@ -323,7 +340,7 @@ class WebSession:
         ids = [p["calendar_id"] for p in self.people]
         start, end = self.start_day, self.end_day
         choices = [self.answers[k]["time"] for k in self.keys]
-        for attempt in ("plan dates", "next week"):
+        for week in range(SETTINGS["search_horizon_weeks"]):
             busy = freebusy(self.cal, ids, at(start, WINDOWS["morning"][0]).replace(hour=0),
                             at(end, WINDOWS["morning"][0]).replace(hour=0) + timedelta(days=1))
             # a rejected time rules out its whole window that day (no "3:30 instead of 3:00")
@@ -332,19 +349,24 @@ class WebSession:
             shared = [t for t in free_slots(busy, start, end, self.minutes, datetime.now(TZ))
                       if (t.date(), window_of(t)) not in gone and why_not(self.cons, t) is None]
             # times the agents already offered in an earlier round are not offered again
-            cands = (candidates(shared, self.minutes, choices, said=choices, exclude=self.offered)
-                     or candidates(shared, self.minutes, choices, said=choices))
+            # never a repeat: if everything here was offered, widen the range instead
+            cands = candidates(shared, self.minutes, choices, said=choices, exclude=self.offered)
             if cands:
                 break
-            self.post("middle", "system", f"Nothing fits {start:%a %b %-d}-{end:%a %b %-d}; looking at next week.")
-            start = end + timedelta(days=7 - end.weekday())
-            end = start + timedelta(days=6)
+            nxt = end + timedelta(days=7 - end.weekday())
+            self.post("middle", "system", f"Nothing left {start:%a %b %-d}-{end:%a %b %-d}, so looking at "
+                      f"{'next week' if not week else f'the week of {nxt:%b %-d}'}.")
+            start, end = nxt, nxt + timedelta(days=6)
         self.done_thinking("middle")
-        if not cands:
-            self.post("middle", "system", "No shared time left that fits, this week or next.")
+        if not cands:  # nothing within the horizon: ask again, still no cap
+            n = SETTINGS["search_horizon_weeks"]
+            self.post("middle", "system", f"No shared time found in the next {n} weeks.")
             for k in self.keys:
-                self.post(k, "agent", f"Sorry, I couldn't find another time that works for you and {self.name(self.other(k))}.")
-            return self.set_state("failed")
+                self.post(k, "agent", f"I couldn't find a shared time with {self.name(self.other(k))} in the next "
+                          f"{n} weeks. What day, time or length would work instead?")
+                self.open_q[k] = "change"
+                self.answers[k].pop("change", None)
+            return self.set_state("held")
         free = {p["name"]: free_windows(busy[p["calendar_id"]], start, end, self.now) for p in self.people}
         if not self.change_round:
             for k in self.keys:
@@ -397,14 +419,17 @@ class WebSession:
         self.post("middle", "system", f"Agreed: {fmt(self.slot[0])} for {self.minutes} min ({res['how']})."
                   + (f" Backup: {fmt(self.backup[0])} ({res['backup_how']})." if self.backup else " No backup left."),
                   kind="agreed")
-        lead = {}
-        if self.last_change:
-            k, text, c = self.last_change
-            o = self.name(k)
-            lead = {k: f"You said \u201c{text}\u201d, so I found a new time: {followed(c, self.slot[0])}. ",
-                    self.other(k): f"{o} asked for \u201c{text}\u201d, so we found a new time. "}
-            self.last_change = None
-        self._hold_and_ask(lead)
+        self._hold_and_ask(self._change_lead())
+
+    def _change_lead(self):
+        """After a renegotiated change: the requester's chat echoes their own
+        words, the other chat gets only a template (never the words or reason)."""
+        if not self.last_change:
+            return {}
+        k, text, c = self.last_change
+        self.last_change = None
+        return {k: f"You said \u201c{text}\u201d, so I found a new time: {followed(c, self.slot[0])}. ",
+                self.other(k): Neutral(self.name(k))}
 
     def key_of(self, person):
         return next(k for k in self.keys if PEOPLE[k] is person)
@@ -447,7 +472,10 @@ class WebSession:
         self.kept = set()
         for k in self.keys:
             note = " (Dry run: not on your real calendar.)" if self.dry_run else ""
-            self.post(k, "agent", f"{(lead or {}).get(k, '')}{self.name(self.other(k))} and you are free on {when}. "
+            head = (lead or {}).get(k, "")
+            head = (f"{head.text(when)} " if isinstance(head, Neutral)
+                    else f"{head}{self.name(self.other(k))} and you are free on {when}. ")
+            self.post(k, "agent", f"{head}"
                       f"I've pencilled it in your calendar (tentative).{note} If I don't hear from you, "
                       f"it's confirmed {dt}. Do you want a different day or time?", kind="hold")
             self.open_q[k] = "change"
@@ -456,20 +484,14 @@ class WebSession:
     def _change(self, key, text, cons, how):
         other = self.other(key)
         if self.open_q.pop(other, None):
-            self.post(other, "agent", f"{self.name(key)} asked for a different time "
-                      f"(\u201c{text}\u201d), so I'm finding a new one.")
-        if self.change_round >= SETTINGS["max_change_rounds"]:
-            self.post(key, "agent", f"That's the most changes I can make this time, so the plan stays: "
-                      f"{fmt(self.slot[0])}.")
-            return self._confirm("change limit reached")
-        self.change_round += 1
+            self.post(other, "agent", finding(self.name(key)))
+        self.change_round += 1  # no cap: keep finding times until both keep one
         self.cons = merge(self.cons, cons)
         cur = self.slot
         self.rejected.append(cur)
         self.post(key, "agent", f"OK, I'll find a different day or time: {describe(cons)}." if describe(cons) !=
                   "no constraints" else "OK, I'll find a different day or time.", mapped="change")
-        self.post("middle", "system", f"{self.name(key)} wants a different day or time (change {self.change_round} "
-                  f"of {SETTINGS['max_change_rounds']}): \u201c{text}\u201d \u2192 {describe(cons)} (read by {how}). "
+        self.post("middle", "system", f"{self.name(key)} wants a different day or time (change {self.change_round}): \u201c{text}\u201d \u2192 {describe(cons)} (read by {how}). "
                   "Not offering again: " + ", ".join(f"{t:%a %b %-d %-I:%M %p}" for t in sorted(self.offered)) + ".")
         b = self.backup
         minutes = self.cons.get("minutes") or self.minutes
@@ -486,7 +508,7 @@ class WebSession:
                       f"({f}), so I'm moving the hold there. No new negotiation needed.")
             return self._hold_and_ask({
                 key: f"You said \u201c{text}\u201d, so I moved it to our backup: {f}. ",
-                other: f"{self.name(key)} asked for \u201c{text}\u201d, so I moved it to our backup. "})
+                other: Neutral(self.name(key), "backup")})
         # 3. backup used up or breaks the reason: renegotiate under the constraint
         self.post("middle", "system", (f"Backup {fmt(b[0])} doesn't fit: {reason}." if b else "No backup left.")
                   + " The agents renegotiate; slots that break it are filtered out in code.")

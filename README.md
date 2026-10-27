@@ -59,7 +59,22 @@ Everything is asked and answered by voice.
    anything is ranked. If the backup meets them (and is still free), the hold moves there
    at once and both are asked again. Otherwise the agents renegotiate under the
    constraints and start their reasons with "You said not Thursday, so ...". What a
-   person says beats their habits. Up to 2 changes.
+   person says beats their habits. Reasons add up across changes (newest wins when two
+   contradict). **No cap on changes:** a time offered once is never offered again, and
+   when a week runs out the search widens a week at a time ("Nothing left Thu Oct 29-Fri
+   Oct 30, so looking at next week"), up to 8 weeks (`search_horizon_weeks`). If nothing
+   fits in that horizon, both are asked for a different day, time or length.
+9. **Privacy.** Your own chat or pebble may echo your words ("You said not Thursday,
+   so ..."). The other person never hears them, quoted or paraphrased: they get a fixed
+   template, "Mayo would prefer a different day or time, so here's a new one: Friday,
+   Nov 6 at 10:30 AM." Compromises read "To work for both of you, how about ...", never
+   "Frankie picked mornings". These lines come from `brain/privacy.py` templates, never
+   from model text. The agent-to-agent middle chat still shows the reason (the agents
+   need it).
+10. **Lengths are multiples of 5.** Anything else rounds down: "37 minutes" → 35,
+   "1 hr 22" → 80. Two lengths meet at the average rounded down: 30 and 45 → 35, 45 and
+   60 → 50 (`brain/lengths.py`, applied after answer mapping, after every agent pick, and
+   to any length in shown or spoken text).
 
 Holds are stored in `state/holds.json` (gitignored). The tap server and the web server
 check deadlines at startup and every 30 s (`hold_sweep_s`), and confirming is idempotent (event ids are
@@ -199,9 +214,9 @@ Stop it with Ctrl+C. Use `--port 9000` if 8000 is taken. The macOS built-in `pyt
 ### How the page's flow works
 
 1. Each agent asks its person the two questions. Muse Spark Open turns free text into
-   morning / noon / night and into minutes ("an hour" → 60).
+   morning / noon / night and into minutes ("an hour" → 60, always a multiple of 5).
 2. Middle chat: if the lengths differ, the agents agree on one (real model turns, up to 2
-   rounds, else the shorter). Each agent then shares its person's free times, and the agents
+   rounds, else the shorter; e.g. 30 and 45: "Let's meet in the middle at 35 min"). Each agent then shares its person's free times, and the agents
    negotiate the day and time over the shared slots (30 min hard buffer, soft windows,
    same-day fallback, the same rules as the pebbles).
 3. It pencils in a tentative event on both calendars (unless dry run) with the agreed
@@ -210,7 +225,9 @@ Stop it with Ctrl+C. Use `--port 9000` if 8000 is taken. The macOS built-in `pyt
    tonight at 10 PM. Do you want a different day or time?"
 4. "No" keeps it for that person. A reason ("not thursday, something later") becomes hard
    constraints; the hold moves to the backup if it fits, otherwise the agents renegotiate
-   under them. When both keep it, or at the deadline: "Plan booked with <other>."
+   under them, as many times as it takes. The other person only hears "Mayo would prefer
+   a different day or time, so here's a new one: ...". When both keep it, or at the
+   deadline: "Plan booked with <other>."
 
 The page and the pebbles share this flow. API: `POST /api/start`,
 `GET /api/session/<id>?since=n`, `POST /api/session/<id>/say`,
@@ -244,7 +261,7 @@ The pebbles talk to a small standard-library server.
 
 ## Files
 
-- `config/settings.json`: the day (8 AM–9 PM), time windows, the 30 min buffer, answer timeout, max change rounds, `reasoning_effort`.
+- `config/settings.json`: the day (8 AM–9 PM), time windows, the 30 min buffer, answer timeout, `search_horizon_weeks` (8), length step/min/max (5/15/240), `reasoning_effort`.
 - `config/people.json`: each person's name, calendar and pebble device id.
 - `brain/parse_plan.py`: Muse Spark Open turns the phrase into a plan (activity, date window, 30 min default). Falls back to Meta's `muse-spark-1.3`.
 - `brain/calendar_slots.py`: free/busy, the 30 min buffer rule, each person's free windows, one candidate per day and window ranked by fit to the answers, fallback notes.
@@ -262,4 +279,6 @@ The pebbles talk to a small standard-library server.
 - `tests/test_slots.py`: checks the 30 min rule, the windows, the same-day fallback when noon is blocked, and that said windows rank before habits.
 - `tests/test_constraints.py`: reason parsing, constraint filtering, backups, deadlines, and holds confirming exactly once.
 - `tests/test_agent_rules.py`: checks the code rules (no repeats, said windows first).
+- `tests/test_changes.py`: lengths in 5s, the other side never hears the reason (web and pebble), no cap on changes (10 in a row, 11 different times), constraints accumulating.
+- `brain/lengths.py`, `brain/privacy.py`: the 5-minute rule and the other-person templates.
 - `traces/`: one JSON per run with every step: the plan, free/busy, inferred profiles (input facts, model reasoning, JSON), each answer and how it was mapped, shared free windows, every agent turn, each keep/change, and the created events.

@@ -34,6 +34,8 @@ from pathlib import Path
 
 import holds
 from agents import fmt, negotiate
+from lengths import fix_text
+from privacy import Neutral, both
 from book import book
 from constraints import describe, followed, merge, parse_change, spoken, why_not
 from calendar_slots import (ORDER, SETTINGS, WINDOWS, at, candidates, fallback_note, free_slots,
@@ -114,6 +116,7 @@ class Session:
 
     # ---- bookkeeping -------------------------------------------------------
     def say(self, text):
+        text = fix_text(text)  # spoken lengths are always clean multiples of 5
         self.lines.append(text)
         self._log(text)
 
@@ -263,7 +266,7 @@ class Session:
                  f"other windows only if nothing fits (always 30 min clear of other events)")
         ids = [p["calendar_id"] for p in self.people]
         start, end = self.start_day, self.end_day
-        for attempt in ("requested dates", "next week"):
+        for week in range(SETTINGS["search_horizon_weeks"]):
             busy = freebusy(self.cal, ids, at(start, WINDOWS["morning"][0]).replace(hour=0),
                             at(end, WINDOWS["morning"][0]).replace(hour=0) + timedelta(days=1))
             for key, blocks in self.extra_busy.items():
@@ -277,14 +280,13 @@ class Session:
                       if (t.date(), w_of(t)) not in gone and why_not(self.cons, t) is None]
             said = [a["choice"] for a in self.answers.values()
                     if a.get("choice") and a.get("source") == "voice"] if pick is None else []
-            cands = (candidates(shared, minutes, choices, said=said, exclude=self.offered)
-                     or candidates(shared, minutes, choices, said=said))
+            cands = candidates(shared, minutes, choices, said=said, exclude=self.offered)  # never a repeat
             ch = {p["name"]: self.answers.get(p["name"], {}).get("choice") for p in self.people}
             notes = {t: {p["name"]: fallback_note(t, w, ch[p["name"]], ch[o["name"]], shared)
                          for p, o in (self.people, self.people[::-1])} for t, w in cands}
             free = {p["name"]: free_windows(busy[p["calendar_id"]], start, end, self.now)
                     for p in self.people}
-            self.step("share_free_times", attempt=attempt, dates=[str(start), str(end)],
+            self.step("share_free_times", week=week, dates=[str(start), str(end)],
                       free_windows={n: [f"{s:%a %b %-d} {hm(s)}-{hm(e)}" for s, e in w]
                                     for n, w in free.items()},
                       candidates=[{"slot": f"{fmt(t)} [{w}]", "notes": notes[t]} for t, w in cands])
@@ -293,11 +295,17 @@ class Session:
                     f"{s:%a} {hm(s)}-{hm(e)}" for s, e in w) if w else f"  {n}'s agent: no free time")
             if cands:
                 break
-            self.say(f"Nothing fits {start} to {end}; looking at next week.")
-            start = end + timedelta(days=7 - end.weekday())
-            end = start + timedelta(days=6)
-        if not cands:
-            return self.fail("No shared time that fits, this week or next.")
+            nxt = end + timedelta(days=7 - end.weekday())
+            self.say(f"Nothing left {start:%a %b %-d}-{end:%a %b %-d}, so looking at "
+                     f"{'next week' if not week else f'the week of {nxt:%b %-d}'}.")
+            start, end = nxt, nxt + timedelta(days=6)
+        if not cands:  # nothing within the horizon: ask again, still no cap
+            n = SETTINGS["search_horizon_weeks"]
+            self.say(f"No shared time found in the next {n} weeks.")
+            self.confirms = {}
+            self.set_state("pencilled_in")
+            return self.ask("confirm", f"I couldn't find a shared time in the next {n} weeks. "
+                            "What day, time or length would work instead?")
         self.notes, self.shared = notes, shared
         self.say("Options both are free for, best fit first:")
         for i, (t, w) in enumerate(cands, 1):
@@ -326,16 +334,19 @@ class Session:
                   backup=self.backup and fmt(self.backup[0]), backup_how=res.get("backup_how"))
         self.say(f"Agreed: {fmt(self.slot[0])}" + (f", backup {fmt(self.backup[0])} ({res['backup_how']})"
                                                   if self.backup else ", no backup left"))
-        lead = {}
-        if self.last_change:
-            name, text, c = self.last_change
-            f = followed(c, self.slot[0])
-            lead = {p["device_id"]: (f"You said {spoken(c) or 'a different time'}, so I found a new time"
-                                     + (f": {f}. " if f else ". ") if p["name"] == name else
-                                     f"{name} said {spoken(c) or 'a different time'}, so we found a new time. ")
-                    for p in self.people}
-            self.last_change = None
-        self.hold_and_ask(lead)
+        self.hold_and_ask(self.change_lead())
+
+    def change_lead(self):
+        """After a renegotiated change: the requester hears their own reason,
+        the other pebble only a template (never the requester's words)."""
+        if not self.last_change:
+            return {}
+        name, text, c = self.last_change
+        self.last_change = None
+        f = followed(c, self.slot[0])
+        return {p["device_id"]: (f"You said {spoken(c) or 'a different time'}, so I found a new time"
+                                 + (f": {f}. " if f else ". ") if p["name"] == name else Neutral(name))
+                for p in self.people}
 
     def note_text(self, t):
         notes = {who: x for who, x in self.notes.get(t, {}).items() if x}
@@ -351,16 +362,8 @@ class Session:
         note = self.notes.get(t, {}).get(p["name"])
         if note and note.startswith("nothing worked"):
             lead = f"Nothing worked at {choice} on {t:%A}, so {q}"
-        elif note == "the other person's pick":
-            other = next(o for o in self.people if o is not p)
-            oa = self.answers[other["name"]]
-            said = "picked" if oa["source"] == "voice" else "usually prefers"
-            lead = f"{other['name']} {said} {oa['choice']}, so {q}"
-        elif note == "middle ground":
-            other = next(o for o in self.people if o is not p)
-            oa = self.answers[other["name"]]
-            said = "picked" if oa["source"] == "voice" else "usually prefers"
-            lead = f"{other['name']} {said} {oa['choice']}, so to meet in the middle, {q}"
+        elif note in ("the other person's pick", "middle ground"):
+            lead = both(q)  # never reveal what the other person picked
         else:
             lead = q[0].upper() + q[1:]
         return lead
@@ -392,12 +395,16 @@ class Session:
         self.confirms = {}
         self.set_state("pencilled_in")
         when = self.result["hold"]["deadline_text"]
-        self.ask("confirm", {p["device_id"]: f"{(lead or {}).get(p['device_id'], '')}{self.proposal_line(p, t)} "
+        def head(p):
+            h = (lead or {}).get(p["device_id"], "")
+            return h.text(f"{t:%A %b %-d} at {hm(t)}") if isinstance(h, Neutral) else f"{h}{self.proposal_line(p, t)}"
+        self.ask("confirm", {p["device_id"]: f"{head(p)} "
                  f"I've pencilled it in. If I don't hear from you, it's confirmed {when}. {Q_CHANGE}"
                  for p in self.people})
 
     def confirm_result(self):
-        changers = [n for n, c in self.confirms.items() if c["choice"] == "change"]
+        changers = [n for n, c in self.confirms.items()
+                    if c["choice"] == "change" or not self.hold]  # no time on the table: any reply is a new ask
         if changers:
             return self.change(changers[0])
         if all(p["name"] in self.confirms for p in self.people):
@@ -407,15 +414,12 @@ class Session:
         c = self.confirms[name]
         text, cons = c["heard"].strip().rstrip(".!"), c["constraints"] or {}
         self.questions = {}  # the other pebble's question is withdrawn
-        if self.change_round >= SETTINGS["max_change_rounds"]:
-            self.say(f"{name} wants a change, but that's the most changes this time; keeping {fmt(self.slot[0])}.")
-            return self.confirm("change limit reached")
-        self.change_round += 1
+        self.change_round += 1  # no cap: keep finding times until both keep one
         self.cons = merge(self.cons, cons)
         self.rejected.append(self.slot)
         self.step("change_requested", by=name, heard=text, constraints=describe(self.cons),
                   change_round=self.change_round)
-        self.say(f'{name} wants a change (change {self.change_round} of {SETTINGS["max_change_rounds"]}): '
+        self.say(f'{name} wants a change (change {self.change_round}): '
                  f'"{text}" -> {describe(cons)}')
         b = self.backup
         reason = "there is no backup left" if not b else why_not(self.cons, b[0])
@@ -426,7 +430,7 @@ class Session:
             said = spoken(cons) or "a different time"
             return self.hold_and_ask({p["device_id"]: (f"You said {said}, so I moved it to our backup"
                                                        + (f": {f}. " if f else ". ") if p["name"] == name else
-                                                       f"{name} said {said}, so I moved it to our backup. ")
+                                                       Neutral(name, "backup"))
                                       for p in self.people})
         self.say(f"  Backup {'doesn' + chr(39) + 't fit: ' + reason if b else 'used up'}; renegotiating under it.")
         if self.hold and self.hold["status"] == "tentative":

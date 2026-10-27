@@ -15,7 +15,8 @@ Constraint dict (JSON-able):
 import re
 from datetime import date, datetime, time, timedelta
 
-from calendar_slots import ORDER, WINDOWS, window_of
+from calendar_slots import ORDER, SETTINGS, WINDOWS, window_of
+from lengths import clean
 from parse_plan import ask_json
 
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -37,7 +38,7 @@ EMPTY = {"not_days": [], "only_days": [], "after": None, "before": None, "after_
          "before_time": None, "windows": [], "minutes": None}
 
 
-def _dates_for(word, today, span=14):
+def _dates_for(word, today, span=7 * SETTINGS["search_horizon_weeks"]):  # the whole search horizon
     name = next(d for d in DAYS if d.startswith(word[:3]))
     return [(today + timedelta(days=i)).isoformat() for i in range(span)
             if (today + timedelta(days=i)).weekday() == DAYS.index(name)]
@@ -71,7 +72,7 @@ def keyword(text, ref: datetime, today: date):
     eat(rf"\b(?:on\s+)?({DAY})\b", lambda m: c["only_days"].extend(_dates_for(m[1], today)))
     eat(rf"\b(?:in\s+the\s+|at\s+)?{WIN}\b",
         lambda m: c["windows"].append(WIN_WORDS[m[1]]) if WIN_WORDS[m[1]] not in c["windows"] else None)
-    eat(r"\b(\d{2,3})\s*(?:m|min|mins|minutes)\b", lambda m: c.update(minutes=int(m[1])))
+    eat(r"\b(\d{2,3})\s*(?:m|min|mins|minutes)\b", lambda m: c.update(minutes=clean(m[1])))
     eat(r"\b(?:half an hour|half hour)\b", lambda m: c.update(minutes=30))
     eat(r"\b(?:an|one|1)\s+hour\b", lambda m: c.update(minutes=60))
     eat(r"\b(?:two|2)\s+hours\b", lambda m: c.update(minutes=120))
@@ -126,7 +127,7 @@ def model(text, ref, today, question):
                    f'They said: "{text}"', check=check)
     r = out["reply"]
     c = dict(EMPTY, not_days=r.get("not_days") or [], only_days=r.get("only_days") or [],
-             windows=r.get("windows") or [], minutes=r.get("minutes"),
+             windows=r.get("windows") or [], minutes=r.get("minutes") and clean(r["minutes"]),
              after=ref.isoformat() if r.get("later") else None,
              before=ref.isoformat() if r.get("earlier") else None,
              after_time=ref.strftime("%H:%M") if r.get("later_in_day") else None,
@@ -155,13 +156,20 @@ def merge(old, new):
     if not old:
         return dict(new)
     out = dict(old)
-    out["not_days"] = sorted(set(old["not_days"]) | set(new["not_days"]))
+    # newest wins: a day asked for now is no longer ruled out
+    out["not_days"] = sorted((set(old["not_days"]) - set(new["only_days"])) | set(new["not_days"]))
     for k in ("only_days", "windows"):
         if new[k]:
             out[k] = new[k]
+    if out.get("only_days"):  # a newer "not Friday" drops Friday from an older "only Friday"
+        out["only_days"] = [d for d in out["only_days"] if d not in new["not_days"]]
     for k in ("after", "before", "after_time", "before_time", "minutes"):
         if new[k] is not None:
             out[k] = new[k]
+    # a newer bound that contradicts an older opposite bound replaces it
+    for lo, hi in (("after", "before"), ("after_time", "before_time")):
+        if out.get(lo) and out.get(hi) and out[lo] >= out[hi]:
+            out[hi if new[lo] is not None else lo] = None
     return out
 
 
@@ -183,7 +191,7 @@ def why_not(c, t: datetime, minutes=None):
     if c["before_time"] and t.time() >= time.fromisoformat(c["before_time"]):
         return f"it's not earlier in the day than {_hm(c['before_time'])}"
     if c["windows"] and window_of(t) not in c["windows"]:
-        return f"it's in the {window_of(t)}, not the {' or '.join(c['windows'])}"
+        return f"it's {AT[window_of(t)]}, not {' or '.join(AT[w] for w in c['windows'])}"
     if c["minutes"] and minutes and c["minutes"] != minutes:
         return f"it's {minutes} min, not {c['minutes']}"
     return None
@@ -226,6 +234,9 @@ def describe(c):
     return "; ".join(parts)
 
 
+AT = {"morning": "in the morning", "noon": "at noon", "night": "at night"}
+
+
 def followed(c, t: datetime):
     """How slot t follows the constraints, for 'You said ..., so ...'."""
     out = []
@@ -236,7 +247,7 @@ def followed(c, t: datetime):
     if c["before"] or c["before_time"]:
         out.append("it's earlier")
     if c["windows"]:
-        out.append(f"it's in the {window_of(t)}")
+        out.append(f"it's {AT[window_of(t)]}")
     if c["minutes"]:
         out.append(f"it's {c['minutes']} min")
     return ", ".join(out) or "it's a different time"
