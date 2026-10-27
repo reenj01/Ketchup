@@ -104,6 +104,7 @@ class WebSession:
         self.slot = None
         self.hold, self.backup, self.kept = None, None, set()  # tentative hold record, backup slot, who kept it
         self.cons, self.last_change = {}, None   # merged change constraints; (key, text, constraints)
+        self.relaxed = None  # a said window with nothing in the horizon, so other windows were used
         self.trace = {"started_at": self.now.isoformat(), "source": "web", "session_id": sid,
                       "input_phrase": phrase, "dry_run": dry_run, "settings": SETTINGS,
                       "steps": [], "agent_turns": [], "messages": self.messages}
@@ -300,8 +301,9 @@ class WebSession:
             self.step("answer", person=self.name(key), question=ask, heard=text, mapped_to=choice,
                       constraints=describe(cons), how=res["how"], mapping=res["detail"])
             if not choice:
-                return self.post(key, "agent", f"Sorry, I didn't catch that. {ask} "
-                                 "(say no to keep it, or what you'd like instead, e.g. \"not Thursday, later\")")
+                self.open_q[key] = "change"  # never default to keep: ask once more
+                return self.post(key, "agent", "Sorry, I didn't catch that. Should I keep it or find another time? "
+                                 "(say keep it, or what you'd like instead, e.g. \"not Thursday, later\")")
             self.answers[key]["change"] = choice
             self.open_q.pop(key)
             if choice == "yes" or not self.hold:  # no time on the table: any reply is a new ask
@@ -340,20 +342,32 @@ class WebSession:
         ids = [p["calendar_id"] for p in self.people]
         start, end = self.start_day, self.end_day
         choices = [self.answers[k]["time"] for k in self.keys]
-        for week in range(SETTINGS["search_horizon_weeks"]):
+        cons, self.relaxed = self.cons, None
+        for week in range(2 * SETTINGS["search_horizon_weeks"]):
+            if week == SETTINGS["search_horizon_weeks"]:
+                # the window the person said beats everything; other windows only if it has nothing
+                if not (cons and cons.get("windows")):
+                    break
+                self.relaxed = " or ".join(cons["windows"])
+                cons = dict(cons, windows=[])
+                start, end = self.start_day, self.end_day
+                self.post("middle", "system", f"No {self.relaxed} time free for both in the next "
+                          f"{SETTINGS['search_horizon_weeks']} weeks, so looking at other times of day.")
             busy = freebusy(self.cal, ids, at(start, WINDOWS["morning"][0]).replace(hour=0),
                             at(end, WINDOWS["morning"][0]).replace(hour=0) + timedelta(days=1))
             # a rejected time rules out its whole window that day (no "3:30 instead of 3:00")
             gone = {(t.date(), w) for t, w in self.rejected}
             # what the person said when changing is a hard filter, before any ranking
             shared = [t for t in free_slots(busy, start, end, self.minutes, datetime.now(TZ))
-                      if (t.date(), window_of(t)) not in gone and why_not(self.cons, t) is None]
+                      if (t.date(), window_of(t)) not in gone and why_not(cons, t) is None]
             # times the agents already offered in an earlier round are not offered again
             # never a repeat: if everything here was offered, widen the range instead
             cands = candidates(shared, self.minutes, choices, said=choices, exclude=self.offered)
             if cands:
                 break
             nxt = end + timedelta(days=7 - end.weekday())
+            if week + 1 == SETTINGS["search_horizon_weeks"]:
+                continue
             self.post("middle", "system", f"Nothing left {start:%a %b %-d}-{end:%a %b %-d}, so looking at "
                       f"{'next week' if not week else f'the week of {nxt:%b %-d}'}.")
             start, end = nxt, nxt + timedelta(days=6)
@@ -404,7 +418,7 @@ class WebSession:
                       decision=r["decision"])
         res = negotiate(mayo, frankie, self.plan["activity"], cands, busy, self.minutes, know,
                         log=lambda *_: None, notes=label, on_turn=on_turn,
-                        context_note=note,
+                        context_note=note + (f" There is no {self.relaxed} time free for both in the search range, so the options are other times of day; say so." if self.relaxed else ""),
                         before_turn=lambda me: self.think("middle", f"{me['name']}'s agent is thinking…"))
         self.done_thinking("middle")
         self.trace["agent_turns"] += res.pop("turns")
@@ -428,7 +442,10 @@ class WebSession:
             return {}
         k, text, c = self.last_change
         self.last_change = None
-        return {k: f"You said \u201c{text}\u201d, so I found a new time: {followed(c, self.slot[0])}. ",
+        n = SETTINGS["search_horizon_weeks"]
+        got = (f"there's no {self.relaxed} time free for both of you in the next {n} weeks, so this is the "
+               f"closest" if self.relaxed else followed(c, self.slot[0]))
+        return {k: f"You said \u201c{text}\u201d, so I found a new time: {got}. ",
                 self.other(k): Neutral(self.name(k))}
 
     def key_of(self, person):

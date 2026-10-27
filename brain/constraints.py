@@ -27,12 +27,32 @@ WIN_WORDS = {"morning": "morning", "mornings": "morning", "afternoon": "noon", "
              "tonight": "night", "after work": "night"}
 WIN = "(" + "|".join(sorted(map(re.escape, WIN_WORDS), key=len, reverse=True)) + ")"
 KEEP = r"\b(keep(?: it)?|that works|works(?: for me)?|perfect|sounds good|good|fine|great|all good|leave it|no thanks|nope|nah|no)\b"
+# The only replies the fast path may read as "keep it": a bare no or a short affirmation.
+# Anything else that sounds like keeping goes to the model, so a reason is never dropped.
+_NO = ["", "no", "nope", "nah", "no thanks", "no thank you", "nah thanks", "nope thanks"]
+_OK = ["", "keep it", "keep", "leave it", "sounds good", "perfect", "that works", "works", "works for me",
+       "that works for me", "all good", "good", "fine", "great", "it's fine", "that's fine", "its fine",
+       "thats fine", "it's perfect", "that's perfect", "that's good", "looks good", "i'm good", "im good",
+       "we're good", "keep it please", "please keep it", "it works", "that's great"]
+KEEP_EXACT = {f"{a} {b}".strip() + t for a in _NO for b in _OK for t in ("", " thanks")} - {"", " thanks"}
+# "yeah that works" is keep; a bare "yes"/"ok" is not (yes = I want a different time)
+KEEP_EXACT |= {f"{a} {b}{t}" for a in ("yes", "yeah", "yep", "yup", "ok", "okay", "sure")
+               for b in _OK if b for t in ("", " thanks")}
+KEEP_EXACT |= {f"{a} {b}" for a in _OK for b in _OK if a and b}  # "perfect, keep it"
+# "that's not at night" describes the pencilled slot: it isn't at night, and they want night.
+# A bare "not at night" is a request: anything but night.
+SLOT_IS = r"\b(?:that's|thats|that is|it's|its|it is|this is|this one's)\s+not|\b(?:that|it|this)\s+(?:isn't|isnt|is not)"
+# complaints with no direction: still a change
+OBJECT = (r"\b(?:that |it |this )?(?:doesn't|doesnt|does not|won't|wont|will not|don't|dont)\s+work\b"
+          r"|\b(?:i )?(?:can't|cant|cannot) (?:make (?:it|that)|do (?:it|that))\b|\bno good\b|\bnot good\b"
+          r"|\bbad time\b|\bnot ideal\b|\b(?:i'm|im|i am) busy\b|\bbusy then\b|\b(?:i )?have a conflict\b"
+          r"|\bconflict\b|\bthat's bad\b|\bnot great\b")
 CHANGE = r"\b(change|different|another|move|switch|reschedule|other)\b"
 FILLER = set("""yes yeah yep yup sure ok okay please pls maybe hmm hmmm um uh actually i i'd id would
 could can we you let's lets do does go try make it move change switch something sometime some time
 a bit little instead how what about better is be that the an different another other day one for me
 to of rather prefer like if possible works work possibly perhaps then any thing anything please
-reschedule on in at there this so just""".split())
+reschedule on in at there this so just that's thats it's its""".split())
 
 EMPTY = {"not_days": [], "only_days": [], "after": None, "before": None, "after_time": None,
          "before_time": None, "windows": [], "minutes": None}
@@ -49,6 +69,9 @@ def keyword(text, ref: datetime, today: date):
     t = " " + text.lower().replace("’", "'") + " "
     c = {k: (list(v) if isinstance(v, list) else v) for k, v in EMPTY.items()}
     found = False
+    bare = " ".join(re.sub(r"[^a-z' ]", " ", t).split())
+    if bare in KEEP_EXACT:
+        return "no", c
 
     def eat(pattern, fn):
         nonlocal t, found
@@ -57,6 +80,20 @@ def keyword(text, ref: datetime, today: date):
             found = True
         t = re.sub(pattern, " ", t)
 
+    # "that's not at night" -> wants night (before the "not at night" rule below)
+    eat(rf"(?:{SLOT_IS})\s+(?:in\s+the\s+|at\s+)?{WIN}\b",
+        lambda m: c.update(windows=[WIN_WORDS[m[1]]]))
+    if re.search(SLOT_IS, t):  # "that's not Thursday", "it's not what I meant": the model decides
+        return None
+    eat(r"\btoo (?:early|soon in the day)\b", lambda m: c.update(after_time=ref.strftime("%H:%M")))
+    eat(r"\btoo late\b", lambda m: c.update(before_time=ref.strftime("%H:%M")))
+    eat(r"\btoo soon\b", lambda m: c.update(after=ref.isoformat()))
+    objection = False
+
+    def obj(m):
+        nonlocal objection
+        objection = True
+    eat(OBJECT, obj)
     eat(rf"\b(?:not|no|except|anything but|but not|can't do|cant do|cannot do|can't|cant|cannot)\s+(?:on\s+)?"
         rf"((?:{DAY})(?:\s*(?:,|or|and|nor)\s*(?:{DAY}))*)\b",
         lambda m: c["not_days"].extend(d for w in re.findall(DAY, m[1]) for d in _dates_for(w, today)))
@@ -83,15 +120,13 @@ def keyword(text, ref: datetime, today: date):
             if re.sub(r"[^a-z']", "", w) and re.sub(r"[^a-z']", "", w) not in FILLER]
     if left:
         return None
-    if found:
+    if found or objection:  # any reason or complaint, even after a "no" ("no, can we do later"), is a change
         return "yes", c
     if plain in (["yes"], ["yeah"], ["yep"], ["yup"], ["sure"]):
         return "yes", c
-    if keep and not change:
-        return "no", c
     if change and not keep:
         return "yes", c
-    return None
+    return None  # keep only for the exact short replies above; the rest goes to the model
 
 
 MODEL_SYSTEM = """A person has a meeting pencilled in and was asked "{question}" They answered.
@@ -106,7 +141,15 @@ Reply with strict JSON only:
   "later": bool, "earlier": bool    (later / earlier than the current slot),
   "later_in_day": bool, "earlier_in_day": bool  (a later / earlier time of day, any day),
   "windows": [...]                  (only the windows they'd accept; [] = any),
-  "minutes": integer or null        (a new meeting length if they asked for one)}}"""
+  "minutes": integer or null        (a new meeting length if they asked for one)}}
+Rules:
+- It's a yes/no question, so a bare "no", "no thanks", "nah it's fine", "keep it", "sounds good" mean keep it: "no".
+- ANY complaint, objection or stated preference means change: "yes", even if the reply starts
+  with "no" or contains "not" ("no, can we do later", "too early", "that doesn't work", "evening please").
+- "That's not at night" / "it's not in the morning" describe the pencilled time: it isn't at night,
+  and they WANT night, so windows = ["night"]. A bare "not at night" means they don't want night:
+  windows = the other two.
+- If you can't tell, "unclear". Never guess "no"."""
 
 
 def model(text, ref, today, question):
@@ -133,7 +176,7 @@ def model(text, ref, today, question):
              after_time=ref.strftime("%H:%M") if r.get("later_in_day") else None,
              before_time=ref.strftime("%H:%M") if r.get("earlier_in_day") else None)
     change = None if r["change"] == "unclear" else r["change"]
-    if change is None and any(c[k] for k in c):
+    if any(c[k] for k in c):  # a reason was given: that is a change, whatever the yes/no said
         change = "yes"
     return change, c, {"model": out["model"], "reply": r}
 

@@ -104,6 +104,7 @@ class Session:
         self.lines, self.result, self.notes, self.shared = [], {}, {}, []
         self.slot, self.backup, self.hold, self.offered, self.rejected = None, None, None, set(), []
         self.cons, self.last_change = {}, None
+        self.relaxed = None  # a said window with nothing in the horizon, so other windows were used
         # Synthetic busy blocks {person_key: [(start, end)]}, dry runs only (testing).
         assert not extra_busy or dry_run, "extra busy blocks are for dry runs only"
         self.extra_busy = extra_busy or {}
@@ -217,8 +218,10 @@ class Session:
                       heard=text, mapped_to=choice, how=how, mapping=detail,
                       constraints=cons and describe(cons))
             self.say(f'  {p["name"]} said "{text}" -> {choice or "unclear, asking again"}')
-            if not choice:
-                return {"ok": False, "error": "unclear answer, question stays open", "say": q["say"]}
+            if not choice:  # never default to keep: ask once more
+                again = ("Sorry, I didn't catch that. Should I keep it or find another time?"
+                         if q["kind"] == "confirm" else q["say"])
+                return {"ok": False, "error": "unclear answer, question stays open", "say": again}
             (self.answers if q["kind"] == "time_of_day" else self.confirms)[p["name"]] = \
                 {"choice": choice, "source": "voice", "heard": text, "constraints": cons}
             del self.questions[device_id]
@@ -266,7 +269,17 @@ class Session:
                  f"other windows only if nothing fits (always 30 min clear of other events)")
         ids = [p["calendar_id"] for p in self.people]
         start, end = self.start_day, self.end_day
-        for week in range(SETTINGS["search_horizon_weeks"]):
+        cons, self.relaxed = self.cons, None
+        for week in range(2 * SETTINGS["search_horizon_weeks"]):
+            if week == SETTINGS["search_horizon_weeks"]:
+                # the window the person said beats everything; other windows only if it has nothing
+                if not (cons and cons.get("windows")):
+                    break
+                self.relaxed = " or ".join(cons["windows"])
+                cons = dict(cons, windows=[])
+                start, end = self.start_day, self.end_day
+                self.say(f"No {self.relaxed} time free for both in the next "
+                         f"{SETTINGS['search_horizon_weeks']} weeks, so looking at other times of day.")
             busy = freebusy(self.cal, ids, at(start, WINDOWS["morning"][0]).replace(hour=0),
                             at(end, WINDOWS["morning"][0]).replace(hour=0) + timedelta(days=1))
             for key, blocks in self.extra_busy.items():
@@ -277,7 +290,7 @@ class Session:
                     for s, e in bl) + ")")
             gone = {(t.date(), w) for t, w in self.rejected}  # a changed time rules out its window that day
             shared = [t for t in free_slots(busy, start, end, minutes, datetime.now(TZ))
-                      if (t.date(), w_of(t)) not in gone and why_not(self.cons, t) is None]
+                      if (t.date(), w_of(t)) not in gone and why_not(cons, t) is None]
             said = [a["choice"] for a in self.answers.values()
                     if a.get("choice") and a.get("source") == "voice"] if pick is None else []
             cands = candidates(shared, minutes, choices, said=said, exclude=self.offered)  # never a repeat
@@ -296,6 +309,8 @@ class Session:
             if cands:
                 break
             nxt = end + timedelta(days=7 - end.weekday())
+            if week + 1 == SETTINGS["search_horizon_weeks"]:
+                continue
             self.say(f"Nothing left {start:%a %b %-d}-{end:%a %b %-d}, so looking at "
                      f"{'next week' if not week else f'the week of {nxt:%b %-d}'}.")
             start, end = nxt, nxt + timedelta(days=6)
@@ -322,7 +337,7 @@ class Session:
         self.say("Agents negotiating:")
         res = negotiate(self.people[0], self.people[1], plan["activity"], cands, busy,
                         minutes, know, log=self.say,
-                        notes={t: self.note_text(t).strip(" ()") for t, _ in cands}, context_note=note)
+                        notes={t: self.note_text(t).strip(" ()") for t, _ in cands}, context_note=note + (f" There is no {self.relaxed} time free for both in the search range, so the options are other times of day; say so." if self.relaxed else ""))
         self.trace["agent_turns"] += res.pop("turns")
         self.trace.setdefault("agreements", []).append(res)
         self.offered |= {cands[i][0] for i in res["offered"]}
@@ -343,7 +358,9 @@ class Session:
             return {}
         name, text, c = self.last_change
         self.last_change = None
-        f = followed(c, self.slot[0])
+        f = (f"there's no {self.relaxed} time free for both of you in the next "
+             f"{SETTINGS['search_horizon_weeks']} weeks, so this is the closest"
+             if self.relaxed else followed(c, self.slot[0]))
         return {p["device_id"]: (f"You said {spoken(c) or 'a different time'}, so I found a new time"
                                  + (f": {f}. " if f else ". ") if p["name"] == name else Neutral(name))
                 for p in self.people}

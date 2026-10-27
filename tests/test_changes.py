@@ -149,6 +149,7 @@ fl.people = [{"name": "Mayo", "device_id": "pebble-mayo"}, {"name": "Frankie", "
 raw = "not thursday, something later because my dentist moved"
 fl.last_change = ("Mayo", raw, keyword("not thursday, something later", ref, date(2026, 10, 27))[1])
 fl.slot = (datetime(2026, 10, 30, 10, 30, tzinfo=TZ), "morning")
+fl.relaxed = None
 lead = fl.change_lead()
 assert "You said not Thursday" in lead["pebble-mayo"], lead
 heard = lead["pebble-frankie"].text("Friday Oct 30 at 10:30 AM")

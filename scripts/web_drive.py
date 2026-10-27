@@ -44,8 +44,9 @@ def main():
     ap.add_argument("--change", action="append", default=None,
                     help="Mayo's change reason; repeat for several changes in a row "
                          "(default: one, \"not thursday, something later\")")
-    ap.add_argument("--both-keep", action="store_true", help="Frankie keeps it too instead of the skip")
-    ap.add_argument("--no-change", action="store_true", help="Mayo keeps the first hold")
+    ap.add_argument("--changer", choices=["mayo", "frankie"], default="mayo", help="who asks for the change")
+    ap.add_argument("--both-keep", action="store_true", help="the other person keeps it too instead of the skip")
+    ap.add_argument("--no-change", action="store_true", help="the changer keeps the first hold")
     ap.add_argument("--out", default="", help="write timings + messages as JSON here")
     a = ap.parse_args()
     shots = Path(a.shots) if a.shots else None
@@ -95,18 +96,19 @@ def main():
     rounds = []
     for i, reason in enumerate([] if a.no_change else (a.change or ["not thursday, something later"]), 1):
         before = call(f"/api/session/{sid}")["slot"]
-        say("mayo", reason)
+        say(a.changer, reason)
         mark("change_asked")
         s = wait(sid, lambda s, i=i: s["change_round"] == i and asked(s) and (s["hold"] or {}).get("status") == "tentative")
         mark("moved_ask")
-        rounds.append({"change": i, "mayo_said": reason, "from": before, "to": s["slot"], "backup": s["backup"]})
+        rounds.append({"change": i, "by": a.changer, "said": reason, "from": before, "to": s["slot"], "backup": s["backup"]})
         print(f"CHANGE {i}: \"{reason}\": {before} -> {s['slot']} (backup {s['backup']})")
-    say("mayo", "no, keep it")
-    wait(sid, lambda s: "mayo" not in s["waiting_for"])
+    other = "frankie" if a.changer == "mayo" else "mayo"
+    say(a.changer, "no, keep it")
+    wait(sid, lambda s: a.changer not in s["waiting_for"])
     shot("4-changed-kept")
     mark("skip")  # Frankie stays silent; end the day now
     if a.both_keep:
-        say("frankie", "keep it")
+        say(other, "keep it")
     elif page:
         page.click("#skip")
     else:

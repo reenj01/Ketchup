@@ -87,7 +87,11 @@ def converse(url, sid):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default="http://localhost:8787")
-    url = ap.parse_args().url
+    ap.add_argument("--frankie-confirm", default="", help='what Frankie says to the pencilled time, e.g. "that\'s not at night"')
+    args = ap.parse_args()
+    url = args.url
+    if args.frankie_confirm:
+        SCRIPT["pebble-frankie"]["confirm"] = [args.frankie_confirm]
 
     print("Case 1: taps 0.5 s apart")
     r = two_taps(url, 0.5)

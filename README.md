@@ -223,8 +223,15 @@ Stop it with Ctrl+C. Use `--port 9000` if 8000 is taken. The macOS built-in `pyt
    backup, and each agent says "Frankie and you are free on <day> at <time>. I've
    pencilled it in your calendar (tentative). If I don't hear from you, it's confirmed
    tonight at 10 PM. Do you want a different day or time?"
-4. "No" keeps it for that person. A reason ("not thursday, something later") becomes hard
-   constraints; the hold moves to the backup if it fits, otherwise the agents renegotiate
+4. Each reply is read as keep, change or unclear. Only a short affirmation keeps it
+   ("no", "nope", "no thanks", "keep it", "sounds good", "perfect", "that works"). Any
+   complaint, objection or preference is a change, even if it starts with "no" or contains
+   "not". "That's not at night" describes the pencilled slot, so the person wants night;
+   a bare "not at night" excludes night. If the reply is unclear, Ketchup asks "Should I
+   keep it or find another time?" and never defaults to keep. A reason ("not thursday,
+   something later") becomes hard
+   constraints. A stated time of day beats everything; only if no slot in that window
+   exists in the 8-week horizon does the search fall back to other windows, and it says so; the hold moves to the backup if it fits, otherwise the agents renegotiate
    under them, as many times as it takes. The other person only hears "Mayo would prefer
    a different day or time, so here's a new one: ...". When both keep it, or at the
    deadline: "Plan booked with <other>."
@@ -233,7 +240,8 @@ The page and the pebbles share this flow. API: `POST /api/start`,
 `GET /api/session/<id>?since=n`, `POST /api/session/<id>/say`,
 `POST /api/session/<id>/skip_to_end_of_day`. `python web/server.py --skip-to-end-of-day`
 confirms every pending hold and exits. `scripts/web_drive.py` runs a whole session
-(agree with a backup, Mayo says "not thursday, something later", Frankie silent, skip).
+(agree with a backup, Mayo says "not thursday, something later", Frankie silent, skip;
+`--changer frankie --change "that's not at night" --both-keep` replays the night case).
 
 ## Tap server
 
@@ -242,6 +250,7 @@ The pebbles talk to a small standard-library server.
 ```
 .venv/bin/python server/tap_server.py --dry-run   # port 8787
 .venv/bin/python scripts/fake_taps.py             # case 1: 0.5 s apart -> paired, voice answers; case 2: 3 s apart -> expired
+.venv/bin/python scripts/fake_taps.py --frankie-confirm "that's not at night"   # Frankie's reply to the pencilled time
 ```
 
 - `POST /tap {"device_id": "pebble-mayo", "phrase": "..."}` waits up to 2.0 s for a tap
@@ -279,6 +288,7 @@ The pebbles talk to a small standard-library server.
 - `tests/test_slots.py`: checks the 30 min rule, the windows, the same-day fallback when noon is blocked, and that said windows rank before habits.
 - `tests/test_constraints.py`: reason parsing, constraint filtering, backups, deadlines, and holds confirming exactly once.
 - `tests/test_agent_rules.py`: checks the code rules (no repeats, said windows first).
+- `tests/test_replies.py`: about 30 replies mapped to keep / change / unclear, "that's not at night" vs "not at night", a model "no" with a reason still counts as a change, the web case searching again for night, unclear replies asked again, and the window fallback after 8 weeks.
 - `tests/test_changes.py`: lengths in 5s, the other side never hears the reason (web and pebble), no cap on changes (10 in a row, 11 different times), constraints accumulating.
 - `brain/lengths.py`, `brain/privacy.py`: the 5-minute rule and the other-person templates.
 - `traces/`: one JSON per run with every step: the plan, free/busy, inferred profiles (input facts, model reasoning, JSON), each answer and how it was mapped, shared free windows, every agent turn, each keep/change, and the created events.
