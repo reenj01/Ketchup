@@ -2,13 +2,18 @@
 
     python server/tap_server.py [--port 8787] [--dry-run]
 
-POST /tap {"device_id": "pebble-mayo", "phrase": "let's catch up Thursday"}
-    Waits up to 2.0 s for a tap from a different pebble. Both requests get the
-    same {"status": "paired", "session_id": ...}; a tap nobody matches comes
-    back {"status": "expired"}. On pairing, the agents negotiate and book in
-    the background, using the phrase heard by the listening pebble.
-GET /sessions/<id>
-    {"status": "negotiating" | "booked" | "agreed (dry run, not booked)" | "failed", ...}
+Both pebbles are the same: mic + speaker. They:
+1. POST /tap {"device_id": "pebble-mayo", "phrase": "let's catch up Thursday"}
+   Waits up to 2.0 s for a tap from the other pebble. Both get the same
+   {"status": "paired", "session_id": ...}, or {"status": "expired"}.
+2. Poll GET /sessions/<id>. "questions" holds, per device, the text to say out
+   loud ("say") while the session waits for that person.
+3. POST /sessions/<id>/answer {"device_id": ..., "answer": "<voice transcript>"}
+   Muse Spark Open maps it to morning/noon/night or keep/change. Plain
+   keywords work too (for testing).
+
+States: paired -> asking_time_of_day -> proposing -> confirming ->
+booked | agreed (dry run, not booked) | failed.
 """
 import argparse
 import json
@@ -20,96 +25,99 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "brain"))
+from flow import Session  # noqa: E402
 from gcal import PEOPLE  # noqa: E402
-from pipeline import run  # noqa: E402
 
 PAIR_WINDOW = 2.0
 DEVICES = {p["device_id"]: key for key, p in PEOPLE.items()}
-LISTENER = "pebble-mayo"  # the Pi pebble with the mic
 
 lock = threading.Condition()
-pending = []   # open taps: {"id", "device_id", "phrase", "at", "session_id"}
-sessions = {}  # session_id -> public status dict
+pending = []   # open taps: {"device_id", "phrase", "at", "session_id"}
+sessions = {}  # session_id -> Session
 DRY_RUN = False
 
 
-def run_session(sid, phrase, proposer):
-    log = []
-    sessions[sid]["log"] = log
-    try:
-        trace = run(phrase, proposer, dry_run=DRY_RUN, log=log.append, source=f"tap-{sid}")
-        sessions[sid].update(
-            status=trace["status"], agreed_slot=trace.get("agreed_slot"),
-            agent_turns=[{"round": t["round"], "agent": t["agent"], **t["reply"]}
-                         for t in trace.get("agent_turns", [])],
-            created_events=trace.get("created_events"), trace_file=trace["trace_file"])
-    except Exception as e:
-        sessions[sid].update(status="failed", error=f"{type(e).__name__}: {e}")
+def run_session(s):
+    s.start()
+    while s.state == "asking_time_of_day":  # people who don't answer get their habit
+        time.sleep(max(0.0, s.deadline - time.monotonic()) + 0.1)
+        s.advance()
 
 
 def tap(device_id, phrase):
-    me = {"id": uuid.uuid4().hex[:8], "device_id": device_id, "phrase": phrase,
-          "at": time.monotonic(), "session_id": None}
+    me = {"device_id": device_id, "phrase": phrase, "at": time.monotonic(), "session_id": None}
     with lock:
         now = me["at"]
         pending[:] = [t for t in pending if now - t["at"] <= PAIR_WINDOW and not t["session_id"]]
         partner = next((t for t in pending if t["device_id"] != device_id), None)
-        if partner:
-            pending.remove(partner)
-            sid = uuid.uuid4().hex[:8]
-            taps = {t["device_id"]: t for t in (partner, me)}
-            heard = taps.get(LISTENER) or partner
-            phrase = heard["phrase"] or partner["phrase"] or me["phrase"]
-            gap = round(me["at"] - partner["at"], 2)
-            sessions[sid] = {"session_id": sid, "status": "negotiating", "dry_run": DRY_RUN,
-                             "devices": [partner["device_id"], device_id],
-                             "tap_gap_s": gap, "phrase": phrase}
-            partner["session_id"] = me["session_id"] = sid
-            lock.notify_all()
-            threading.Thread(target=run_session, daemon=True,
-                             args=(sid, phrase, DEVICES[heard["device_id"]])).start()
-            return {"status": "paired", "session_id": sid, "partner": partner["device_id"],
-                    "tap_gap_s": gap}
-        pending.append(me)
-        lock.wait_for(lambda: me["session_id"], timeout=PAIR_WINDOW)
-        if me in pending:
-            pending.remove(me)
-        if me["session_id"]:
-            s = sessions[me["session_id"]]
-            return {"status": "paired", "session_id": s["session_id"],
-                    "partner": s["devices"][1], "tap_gap_s": s["tap_gap_s"]}
-        return {"status": "expired", "waited_s": PAIR_WINDOW}
+        if not partner:
+            pending.append(me)
+            lock.wait_for(lambda: me["session_id"], timeout=PAIR_WINDOW)
+            if me in pending:
+                pending.remove(me)
+            if not me["session_id"]:
+                return {"status": "expired", "waited_s": PAIR_WINDOW}
+            return {"status": "paired", "session_id": me["session_id"],
+                    "partner": me["partner"], "tap_gap_s": me["gap"]}
+        pending.remove(partner)
+        sid = uuid.uuid4().hex[:8]
+        gap = round(me["at"] - partner["at"], 2)
+        # Whoever's pebble heard the phrase is the proposer.
+        heard = partner if partner["phrase"] else me
+        s = Session(heard["phrase"] or "let's catch up this week", DEVICES[heard["device_id"]],
+                    DRY_RUN, log=lambda line: print(f"[{sid}] {line}", flush=True),
+                    source=f"tap-{sid}", sid=sid)
+        s.trace["tap"] = {"devices": [partner["device_id"], device_id], "gap_s": gap}
+        sessions[sid] = s
+        partner.update(session_id=sid, partner=device_id, gap=gap)
+        lock.notify_all()
+        threading.Thread(target=run_session, args=(s,), daemon=True).start()
+        return {"status": "paired", "session_id": sid, "partner": partner["device_id"],
+                "tap_gap_s": gap}
 
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, obj):
-        body = json.dumps(obj, indent=2).encode()
+        body = json.dumps(obj, indent=2, default=str).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
+    def _body(self):
+        return json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+
     def do_POST(self):
-        if self.path != "/tap":
-            return self._send(404, {"error": "not found"})
         try:
-            data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            data = self._body()
         except json.JSONDecodeError:
             return self._send(400, {"error": "body must be JSON"})
         device = data.get("device_id")
         if device not in DEVICES:
             return self._send(400, {"error": f"unknown device_id, expected one of {list(DEVICES)}"})
-        self._send(200, tap(device, data.get("phrase")))
+        if self.path == "/tap":
+            return self._send(200, tap(device, data.get("phrase")))
+        parts = self.path.strip("/").split("/")
+        if len(parts) == 3 and parts[0] == "sessions" and parts[2] == "answer":
+            s = sessions.get(parts[1])
+            if not s:
+                return self._send(404, {"error": "no such session"})
+            r = s.answer(device, str(data.get("answer", "")))
+            if r["ok"]:
+                threading.Thread(target=s.advance, daemon=True).start()
+            return self._send(200 if r["ok"] else 409, {**r, "state": s.state})
+        self._send(404, {"error": "not found"})
 
     def do_GET(self):
         if self.path.startswith("/sessions/"):
             s = sessions.get(self.path.removeprefix("/sessions/"))
-            return self._send(200, s) if s else self._send(404, {"error": "no such session"})
+            return self._send(200, s.public()) if s else self._send(404, {"error": "no such session"})
         self._send(404, {"error": "not found"})
 
     def log_message(self, fmt, *args):
-        print(f"[{self.log_date_time_string()}] {fmt % args}", flush=True)
+        if "GET /sessions" not in (fmt % args):  # pebbles poll a lot
+            print(f"[{self.log_date_time_string()}] {fmt % args}", flush=True)
 
 
 def main():
@@ -117,7 +125,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8787)
-    ap.add_argument("--dry-run", action="store_true", help="negotiate but never book")
+    ap.add_argument("--dry-run", action="store_true", help="never book")
     args = ap.parse_args()
     DRY_RUN = args.dry_run
     print(f"Ketchup tap server on {args.host}:{args.port} (dry run: {DRY_RUN})", flush=True)

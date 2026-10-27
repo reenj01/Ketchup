@@ -1,8 +1,8 @@
 """Infer a person's meeting preferences from their own calendar with Muse Spark Open.
 
 Nothing is hand-written: we hand the model plain facts about the person's
-timed events (when they happen, gaps between them) and it infers when they
-like to meet and how much buffer they keep.
+timed events (when they happen) and it infers when they
+like to meet (time of day). The 30-min buffer is a fixed rule elsewhere.
 
     python brain/infer_prefs.py mayo
 """
@@ -21,18 +21,14 @@ meetings. You get facts only: their timed events and simple counts.
 Reply with strict JSON only, no prose, no code fences:
 {"time_of_day_preference": "morning" | "afternoon" | "evening" | "no clear pattern",
  "preferred_hours": "e.g. 9 AM-12 PM, or \\"none\\" if unclear",
- "min_buffer_min": integer minutes of break they seem to keep between events (0 if unknown),
  "confidence": "low" | "medium" | "high",
- "evidence": ["short strings citing actual events or gaps from the data"],
+ "evidence": ["short strings citing actual events from the data"],
  "summary": "one sentence"}
 How to read it:
 - If most of their events fall in one part of the day, they are probably a
   person for that part of the day and would prefer meeting then.
-- If consecutive events on the same day always leave a break, they likely
-  want at least that break around a new meeting.
-- Base everything on the data given. If there are only a few events or no
-  consecutive same-day pairs, say so: use "no clear pattern" and/or
-  confidence "low", and min_buffer_min 0 when gaps can't be judged.
+- Base everything on the data given. If there are only a few events, say
+  so: use "no clear pattern" and/or confidence "low".
   Never invent events."""
 
 
@@ -50,17 +46,10 @@ def calendar_facts(cal, calendar_id, now):
         events.append((s, t, e.get("summary", "(no title)")))
     part = lambda h: "morning (before 12 PM)" if h < 12 else "afternoon (12-5 PM)" if h < 17 else "evening (after 5 PM)"
     by_part = Counter(part(s.hour) for s, _, _ in events)
-    gaps = [(a[2], b[2], int((b[0] - a[1]).total_seconds() // 60))
-            for a, b in zip(events, events[1:]) if a[0].date() == b[0].date()]
     lines = [f"Window: {(now - PAST):%a %b %-d} to {(now + FUTURE):%a %b %-d} (ET). "
              f"{len(events)} timed events."]
     lines += [f"- {s:%a %b %-d} {s:%-I:%M %p}-{t:%-I:%M %p}: {title}" for s, t, title in events]
     lines.append("Events by time of day: " + (", ".join(f"{k}: {v}" for k, v in by_part.items()) or "none"))
-    if gaps:
-        lines.append("Gaps between consecutive events on the same day:")
-        lines += [f"- {m} min between \"{a}\" and \"{b}\"" for a, b, m in gaps]
-    else:
-        lines.append("No days with two or more events, so no gaps to measure.")
     return "\n".join(lines)
 
 
@@ -69,7 +58,6 @@ def _check(r):
         raise ValueError("bad time_of_day_preference")
     if r.get("confidence") not in ("low", "medium", "high"):
         raise ValueError("bad confidence")
-    r["min_buffer_min"] = int(r.get("min_buffer_min") or 0)
     if not isinstance(r.get("evidence"), list) or not isinstance(r.get("summary"), str):
         raise ValueError("missing evidence/summary")
 

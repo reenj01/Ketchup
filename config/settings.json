@@ -1,0 +1,11 @@
+{
+  "buffer_min": 30,
+  "windows": {
+    "morning": ["08:00", "11:30"],
+    "noon": ["11:30", "14:30"],
+    "night": ["17:00", "21:00"]
+  },
+  "answer_timeout_s": 30,
+  "max_change_rounds": 2,
+  "max_candidates": 6
+}
