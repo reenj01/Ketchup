@@ -1,38 +1,72 @@
-"""Turn a spoken plan phrase into structured JSON with Muse Spark Open."""
+"""Turn a spoken plan phrase into a concrete plan with Muse Spark Open.
+
+Baseten (Muse Spark Open) is the main brain; Meta's Model API is the backup.
+"""
 import json
 import os
 import sys
+import time
 import urllib.request
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-BASETEN_URL = "https://inference.baseten.co/v1/chat/completions"
-MODEL = "meta-models/muse-spark-open-1026"
-SYSTEM = (
-    "Extract the plan from what was said. Reply with JSON only: "
-    '{"activity": ..., "when": ..., "duration_min": ...}. Use null when not said.'
-)
+TZ = ZoneInfo("America/New_York")
+BASETEN = ("https://inference.baseten.co/v1/chat/completions",
+           "meta-models/muse-spark-open-1026", "BASETEN_API_KEY")
+META = ("https://api.meta.ai/v1/chat/completions", "muse-spark-1.3", "META_API_KEY")
+
+SYSTEM = """You are a scheduling agent. Someone said a plan phrase out loud.
+Turn it into a concrete plan. Reply with JSON only, no prose:
+{"activity": short phrase like "catch up" or "grab lunch",
+ "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD",
+ "duration_min": integer}
+Rules:
+- Resolve relative days against today's date given below. A bare weekday
+  ("Thursday") means the next upcoming one (today counts if it is that day).
+  "next week" means next Monday through Sunday. "this week" or no time said
+  means today through this Sunday.
+- start_date and end_date are inclusive and never before today.
+- duration_min defaults to 30 when not said."""
 
 
-def parse_plan(text: str) -> dict:
+def _call(url, model, key_env, text, now):
     body = json.dumps({
-        "model": MODEL,
+        "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": text},
+            {"role": "user", "content": f"Today is {now:%A %Y-%m-%d}, {now:%H:%M} "
+                                        f"America/New_York.\nPhrase: {text}"},
         ],
-        "max_tokens": 800,
+        "max_tokens": 4000,
     }).encode()
-    req = urllib.request.Request(BASETEN_URL, data=body, headers={
-        "Authorization": f"Bearer {os.environ['BASETEN_API_KEY']}",
+    req = urllib.request.Request(url, data=body, headers={
+        "Authorization": f"Bearer {os.environ[key_env]}",
         "Content-Type": "application/json",
     })
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=90) as resp:
         message = json.load(resp)["choices"][0]["message"]
-    return {
-        "plan": json.loads(message["content"]),
-        "reasoning": message.get("reasoning_content"),
-    }
+    content = message["content"].strip()
+    if content.startswith("```"):
+        content = content.strip("`").removeprefix("json").strip()
+    return json.loads(content), message.get("reasoning_content")
+
+
+def parse_plan(text: str, now: datetime | None = None) -> dict:
+    """Returns {"plan", "reasoning", "model", "errors"}. Tries Baseten, then Meta."""
+    now = now or datetime.now(TZ)
+    errors = []
+    for url, model, key_env, tries in (BASETEN + (2,), META + (3,)):
+        for attempt in range(tries):
+            try:
+                plan, reasoning = _call(url, model, key_env, text, now)
+                plan["duration_min"] = int(plan.get("duration_min") or 30)
+                return {"plan": plan, "reasoning": reasoning, "model": model,
+                        "errors": errors}
+            except Exception as e:  # network, HTTP, or bad JSON: try again / fall back
+                errors.append(f"{model} attempt {attempt + 1}: {type(e).__name__}: {e}")
+                time.sleep(1)
+    raise RuntimeError("Both brains failed: " + " | ".join(errors))
 
 
 if __name__ == "__main__":
-    result = parse_plan(" ".join(sys.argv[1:]))
-    print(json.dumps(result["plan"]))
+    print(json.dumps(parse_plan(" ".join(sys.argv[1:]))["plan"]))
