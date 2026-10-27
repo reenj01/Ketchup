@@ -3,7 +3,10 @@
     python scripts/fake_taps.py [--url http://localhost:8787]
 
 Case 1: taps 0.5 s apart -> paired; Mayo says morning, Frankie says night
-        (as voice transcripts); first proposal: Frankie wants a change, then both keep.
+        (as voice transcripts). The agreed time is pencilled in (tentative);
+        Mayo keeps it, Frankie says "can we do something later?" -> the hold
+        moves (backup, or a new negotiation under "later"). Mayo keeps the new
+        time, Frankie stays silent, then "skip to end of day" confirms it.
 Case 2: taps 3 s apart -> both expire, no session.
 Run the server with --dry-run so nothing is booked.
 """
@@ -19,12 +22,12 @@ SCRIPT = {  # what each person "says" to each question, in order
     "pebble-mayo": {"time_of_day": ["I'm a morning person, before work is best"],
                     "confirm": ["yeah that works for me", "perfect, keep it"]},
     "pebble-frankie": {"time_of_day": ["ugh, mornings are rough. evening please"],
-                       "confirm": ["hmm, can we do a different time?", "sure, sounds good"]},
+                       "confirm": ["hmm, can we do something later?"]},  # then silent
 }
 
 
 def call(url, path, body=None):
-    req = urllib.request.Request(url + path, data=json.dumps(body).encode() if body else None,
+    req = urllib.request.Request(url + path, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
@@ -57,7 +60,15 @@ def converse(url, sid):
             seen.add(s["state"])
             print(f"  state -> {s['state']}" + (f"   nudge: {s['nudge']}" if s.get("nudge") and s["state"] == "asking_time_of_day" else ""))
         if s["state"] in ("booked", "agreed (dry run, not booked)", "failed"):
+            for dev, text in s["speak"].items():
+                print(f'  {dev} speaker: "{text}"')
             return s
+        if s["state"] == "pencilled_in" and s["questions"] and all(
+                said[d]["confirm"] >= len(SCRIPT[d]["confirm"]) for d in s["questions"]):
+            r = call(url, f"/sessions/{sid}/skip_to_end_of_day", {})
+            print(f"  nobody else replies -> skip to end of day: {r.get('confirmed') or r.get('error')}")
+            time.sleep(0.5)
+            continue
         for dev, q in s["questions"].items():
             lines = SCRIPT[dev][q["kind"]]
             i = said[dev][q["kind"]]
@@ -65,7 +76,11 @@ def converse(url, sid):
                 continue
             said[dev][q["kind"]] += 1
             r = call(url, f"/sessions/{sid}/answer", {"device_id": dev, "answer": lines[i]})
-            print(f'  {dev} speaker: "{q["say"]}"  mic: "{lines[i]}" -> {r.get("mapped_to") or r.get("error")}')
+            print(f'  {dev} speaker: "{q["say"]}"\n    mic: "{lines[i]}" -> {r.get("mapped_to") or r.get("error")}'
+                  + (f' ({r["constraints"]})' if r.get("constraints") else "")
+                  + (f'\n    speaker: "{r["say"]}"' if r.get("say") else ""))
+            if s["state"] == "pencilled_in":
+                break  # one reply at a time: a change replaces both questions
         time.sleep(0.5)
 
 
@@ -84,7 +99,8 @@ def main():
         print("  Server log:")
         for line in s["log"]:
             print(f"    {line}")
-        ok1 = s["state"] != "failed"
+        ok1 = (s["state"] != "failed" and s.get("hold", {}).get("status") == "confirmed"
+               and s.get("change_round") == 1)
 
     print("\nCase 2: taps 3 s apart")
     r = two_taps(url, 3.0)

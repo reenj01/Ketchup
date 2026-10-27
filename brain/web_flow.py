@@ -9,16 +9,18 @@ Flow (RJ's wording):
 1. Each agent asks its person "What time of day do you prefer to meet?"
    and "How long do you prefer to meet?" (typed now, spoken on the pebbles later).
 2. Middle chat: the agents share free windows, settle the length, then
-   negotiate the day and time.
-3. Book it on both calendars right away (or not, in dry run), then each agent
-   says "Frankie and you are free on <day> at <time>. I've booked it in your
-   calendar. Do you want a different day or time?"
-4. Anyone says yes -> delete the booked events, back to the middle chat for a
-   new time (rejected times excluded), rebook, ask again. Both say no ->
-   "Plan booked with <other>." At most max_change_rounds changes.
+   negotiate the day and time, and a backup slot in the same turns.
+3. Pencil it in on both calendars as a tentative hold (holds.py) and ask
+   "Do you want a different day or time?". "No" = kept. Both kept -> confirmed
+   now. Nobody answers -> confirmed at the deadline (11:59 PM ET that day, or
+   30 min before it starts if sooner); "Skip to end of day" runs that now.
+4. "Yes / not Thursday, something later" -> the reason becomes hard
+   constraints (constraints.py). If the backup fits them, the hold moves
+   there right away and both are asked again; otherwise the hold is removed
+   and the agents renegotiate under the constraint (offered times never come
+   back). At most max_change_rounds changes.
 
-Unlike the pebble flow (flow.py: book only after both keep), this page books
-first and asks after, as RJ described. All work runs on one worker thread
+Same rules as the pebble flow (flow.py). All work runs on one worker thread
 per session, so the Google client is never shared between threads.
 """
 import json
@@ -29,7 +31,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
 from agents import fmt, negotiate, negotiate_length
-from book import book
+import holds
+from constraints import describe, followed, merge, parse_change, why_not
 from calendar_slots import (SETTINGS, WINDOWS, at, candidates, fallback_note, free_slots, free_windows,
                             freebusy, window_of)
 from flow import TRACES, hm, map_answer
@@ -70,22 +73,6 @@ def map_minutes(text):
     return out["reply"]["minutes"], "Muse Spark Open", {"model": out["model"], "reply": out["reply"]}
 
 
-def map_yes_no(question, text):
-    t = text.strip().lower().strip(".!?")
-    if t in ("yes", "no", "yeah", "yep", "nope", "no thanks"):
-        return ("yes" if t.startswith("y") else "no"), "keyword", None
-    system = (f'A person was asked "{question}" and answered. yes = they want a different '
-              "day or time; no = they are happy with it. Map the answer to \"yes\", \"no\" "
-              'or "unclear". Reply with strict JSON only: {"answer": "..."}')
-
-    def check(r):
-        if r.get("answer") not in ("yes", "no", "unclear"):
-            raise ValueError("bad answer")
-    out = ask_json(system, f'They said: "{text}"', check=check)
-    a = out["reply"]["answer"]
-    return (None if a == "unclear" else a), "Muse Spark Open", {"model": out["model"], "reply": out["reply"]}
-
-
 class WebSession:
     def __init__(self, sid, phrase, dry_run=True, proposer="mayo"):
         other = next(k for k in PEOPLE if k != proposer)
@@ -97,9 +84,11 @@ class WebSession:
         self.messages, self.thinking, self.state = [], {}, "starting"
         self.open_q = {}                 # person key -> "time" | "length" | "change"
         self.answers = {k: {} for k in self.keys}
-        self.booked, self.rejected, self.offered, self.change_round = [], [], set(), 0
+        self.rejected, self.offered, self.change_round = [], set(), 0
         self.mapping = set()             # person keys whose answer is being understood
         self.slot = None
+        self.hold, self.backup, self.kept = None, None, set()  # tentative hold record, backup slot, who kept it
+        self.cons, self.last_change = {}, None   # merged change constraints; (key, text, constraints)
         self.trace = {"started_at": self.now.isoformat(), "source": "web", "session_id": sid,
                       "input_phrase": phrase, "dry_run": dry_run, "settings": SETTINGS,
                       "steps": [], "agent_turns": [], "messages": self.messages}
@@ -165,11 +154,16 @@ class WebSession:
 
     def public(self, since=0):
         with self.lock:
-            return {"session_id": self.sid, "state": self.state, "dry_run": self.dry_run,
+            return {"session_id": self.sid, "state": self.state, "dry_run": self.dry_run, "phrase": self.phrase,
                     "people": {k: self.name(k) for k in self.keys},
                     "messages": self.messages[since:], "thinking": dict(self.thinking),
                     "waiting_for": {k: q for k, q in self.open_q.items()},
                     "slot": self.slot and fmt(self.slot[0]), "change_round": self.change_round,
+                    "hold": self.hold and {
+                        "status": self.hold["status"], "slot": fmt(datetime.fromisoformat(self.hold["start"])),
+                        "deadline_text": self.deadline_text(), "why": self.hold.get("why"),
+                        "api_status": self.hold.get("api_status"), "kept": [self.name(k) for k in self.kept]},
+                    "backup": self.backup and fmt(self.backup[0]),
                     "trace_file": str(self.path.relative_to(TRACES.parent)),
                     "timing": summary(self.calls())}
 
@@ -198,7 +192,7 @@ class WebSession:
             elif q == "length":
                 res = map_minutes(text)
             else:
-                res = map_yes_no("Do you want a different day or time?", text)
+                res = parse_change(text, self.slot[0], datetime.now(TZ).date())
         except Exception as e:  # noqa: BLE001 - surfaced on the worker
             res = e
         self.jobs.put(("handle_answer", key, text, q, res))
@@ -285,22 +279,24 @@ class WebSession:
                 self._negotiate()
         elif q == "change":
             ask = "Do you want a different day or time?"
-            choice, how, detail = res
+            choice, cons = res["change"], res["constraints"]
             self.step("answer", person=self.name(key), question=ask, heard=text, mapped_to=choice,
-                      how=how, mapping=detail)
-            self.done_thinking(key)
+                      constraints=describe(cons), how=res["how"], mapping=res["detail"])
             if not choice:
-                return self.post(key, "agent", f"Sorry, I didn't catch that. {ask} (yes or no)")
+                return self.post(key, "agent", f"Sorry, I didn't catch that. {ask} "
+                                 "(say no to keep it, or what you'd like instead, e.g. \"not Thursday, later\")")
             self.answers[key]["change"] = choice
             self.open_q.pop(key)
             if choice == "yes":
-                return self._change(key)
-            if self.open_q:  # still waiting for the other person
-                return self.post(key, "agent", f"Great, keeping it. Waiting on {self.name(self.other(key))}.",
-                                 mapped="no")
-            self._finish()
+                return self._change(key, text, cons, res["how"])
+            self.kept.add(key)
+            if all(k in self.kept for k in self.keys):
+                return self._confirm("both kept it")
+            o = self.name(self.other(key))
+            self.post(key, "agent", f"Great, keeping it. It's confirmed once {o} keeps it too, or "
+                      f"{self.deadline_text()} if {o} doesn't reply.", mapped="keep")
 
-    def _negotiate(self, note=""):
+    def _negotiate(self, note=""):  # noqa: C901 - one readable flow
         self.set_state("negotiating")
         mayo, frankie = self.people
         say = lambda k, r: self.post("middle", k, r)  # noqa: E731
@@ -332,8 +328,9 @@ class WebSession:
                             at(end, WINDOWS["morning"][0]).replace(hour=0) + timedelta(days=1))
             # a rejected time rules out its whole window that day (no "3:30 instead of 3:00")
             gone = {(t.date(), w) for t, w in self.rejected}
-            shared = [t for t in free_slots(busy, start, end, self.minutes, self.now)
-                      if (t.date(), window_of(t)) not in gone]
+            # what the person said when changing is a hard filter, before any ranking
+            shared = [t for t in free_slots(busy, start, end, self.minutes, datetime.now(TZ))
+                      if (t.date(), window_of(t)) not in gone and why_not(self.cons, t) is None]
             # times the agents already offered in an earlier round are not offered again
             cands = (candidates(shared, self.minutes, choices, said=choices, exclude=self.offered)
                      or candidates(shared, self.minutes, choices, said=choices))
@@ -378,8 +375,10 @@ class WebSession:
             if me is None:
                 return self.post("middle", "system", f"Only one time fits: {fmt(t)}.")
             verb = {"propose": "How about", "accept": "Deal:", "counter": "What about"}[r["decision"]]
-            self.post("middle", self.key_of(me), (f"{verb} {fmt(t)} [{w}]? {r['reason']}"
-                      if r["decision"] != "accept" else f"{verb} {fmt(t)}. {r['reason']}").strip(),
+            b = r.get("backup") and cands[r["backup"] - 1][0]
+            back = f" Backup: {fmt(b)}." if b else ""
+            self.post("middle", self.key_of(me), (f"{verb} {fmt(t)} [{w}]?{back} {r['reason']}"
+                      if r["decision"] != "accept" else f"{verb} {fmt(t)}.{back} {r['reason']}").strip(),
                       decision=r["decision"])
         res = negotiate(mayo, frankie, self.plan["activity"], cands, busy, self.minutes, know,
                         log=lambda *_: None, notes=label, on_turn=on_turn,
@@ -392,65 +391,166 @@ class WebSession:
         if res["how"] == "best combined rank":
             self.post("middle", "system", "No deal after 2 rounds, so the best combined rank wins.")
         self.slot = cands[res["agreed_index"]]
-        self.post("middle", "system", f"Agreed: {fmt(self.slot[0])} for {self.minutes} min ({res['how']}).",
+        self.backup = cands[res["backup_index"]] if res.get("backup_index") is not None else None
+        if self.backup:
+            self.offered.add(self.backup[0])
+        self.post("middle", "system", f"Agreed: {fmt(self.slot[0])} for {self.minutes} min ({res['how']})."
+                  + (f" Backup: {fmt(self.backup[0])} ({res['backup_how']})." if self.backup else " No backup left."),
                   kind="agreed")
-        self._book_and_ask()
+        lead = {}
+        if self.last_change:
+            k, text, c = self.last_change
+            o = self.name(k)
+            lead = {k: f"You said \u201c{text}\u201d, so I found a new time: {followed(c, self.slot[0])}. ",
+                    self.other(k): f"{o} asked for \u201c{text}\u201d, so we found a new time. "}
+            self.last_change = None
+        self._hold_and_ask(lead)
 
     def key_of(self, person):
         return next(k for k in self.keys if PEOPLE[k] is person)
 
-    def _book_and_ask(self):
+    def deadline_text(self):
+        return holds.deadline_text(datetime.fromisoformat(self.hold["deadline"]),
+                                   datetime.fromisoformat(self.hold["made_at"]))
+
+    def _hold_and_ask(self, lead=None):
+        """Pencil the slot in on both calendars (tentative) and ask both people."""
         t, w = self.slot
-        if self.dry_run:
-            self.booked = []
-            self.post("middle", "system", "Dry run: not writing to either calendar.")
+        now = datetime.now(TZ)
+        self.think("middle", "pencilling it in…")
+        if self.hold and self.hold["status"] == "tentative":
+            self.hold = holds.move(self.cal, self.hold["id"], t, self.minutes, now)
+            what = "Moved the tentative hold to"
         else:
-            self.think("middle", "booking…")
-            self.booked = book(self.cal, self.people, t, self.minutes, self.plan["activity"])
-            self.trace.setdefault("created_events", []).extend(self.booked)
-            self.done_thinking("middle")
-            self.post("middle", "system", f"Booked {fmt(t)} on both calendars.")
-        self.step("booked", slot=fmt(t), minutes=self.minutes, events=self.booked, dry_run=self.dry_run)
-        self.set_state("confirming")
+            self.hold = holds.create(self.cal, self.people, t, self.minutes, self.plan["activity"],
+                                     self.sid, "web", self.dry_run, now)
+            holds.LISTENERS[self.hold["id"]] = lambda rec: self.jobs.put(("auto_confirmed", rec))
+            what = "Pencilled in"
+        self.done_thinking("middle")
+        if self.hold["status"] != "tentative":  # confirmed meanwhile (skip to end of day)
+            return self._finish()
+        if self.dry_run:
+            self.post("middle", "system", f"{what} {fmt(t)} (dry run: the hold lives in Ketchup only, "
+                      "nothing written to either calendar).", kind="hold")
+        else:
+            self.trace.setdefault("created_events", []).extend(
+                e for e in self.hold["events"] if e not in self.trace.get("created_events", []))
+            self.post("middle", "system", f"{what} {fmt(t)} on both calendars: Google event status "
+                      f"\"{', '.join(sorted(set(self.hold.get('api_status') or [])))}\", title "
+                      f"\"{self.hold['title']}{holds.MARK}\".", kind="hold")
+        dt = self.deadline_text()
+        self.post("middle", "system", f"Tentative, confirms {dt} unless someone changes it.", kind="hold")
+        self.step("hold", slot=fmt(t), minutes=self.minutes, hold=self.hold, dry_run=self.dry_run,
+                  backup=self.backup and fmt(self.backup[0]))
+        self.set_state("held")
         when = f"{t:%A, %b %-d} at {hm(t)}"
+        self.kept = set()
         for k in self.keys:
-            note = " (Dry run: nothing was actually added.)" if self.dry_run else ""
-            self.post(k, "agent", f"{self.name(self.other(k))} and you are free on {when}. "
-                      f"I've booked it in your calendar.{note} Do you want a different day or time?")
+            note = " (Dry run: not on your real calendar.)" if self.dry_run else ""
+            self.post(k, "agent", f"{(lead or {}).get(k, '')}{self.name(self.other(k))} and you are free on {when}. "
+                      f"I've pencilled it in your calendar (tentative).{note} If I don't hear from you, "
+                      f"it's confirmed {dt}. Do you want a different day or time?", kind="hold")
             self.open_q[k] = "change"
             self.answers[k].pop("change", None)
 
-    def _unbook(self):
-        for e in self.booked:
-            self.cal.events().delete(calendarId=e["calendar_id"], eventId=e["event_id"]).execute()
-        if self.booked:
-            self.post("middle", "system", f"Deleted the {fmt(self.slot[0])} events from both calendars.")
-            self.trace.setdefault("deleted_events", []).extend(self.booked)
-        self.booked = []
-
-    def _change(self, key):
+    def _change(self, key, text, cons, how):
         other = self.other(key)
         if self.open_q.pop(other, None):
-            self.post(other, "agent", f"{self.name(key)} asked for a different time, so I'm finding a new one.")
+            self.post(other, "agent", f"{self.name(key)} asked for a different time "
+                      f"(\u201c{text}\u201d), so I'm finding a new one.")
         if self.change_round >= SETTINGS["max_change_rounds"]:
             self.post(key, "agent", f"That's the most changes I can make this time, so the plan stays: "
                       f"{fmt(self.slot[0])}.")
-            return self._finish()
+            return self._confirm("change limit reached")
         self.change_round += 1
-        self.post(key, "agent", "OK, I'll find a different day or time.", mapped="yes")
-        self.rejected.append(self.slot)
-        self._unbook()
-        self.post("middle", "system", f"{self.name(key)} wants a different day or time "
-                  f"(change {self.change_round} of {SETTINGS['max_change_rounds']}). "
+        self.cons = merge(self.cons, cons)
+        cur = self.slot
+        self.rejected.append(cur)
+        self.post(key, "agent", f"OK, I'll find a different day or time: {describe(cons)}." if describe(cons) !=
+                  "no constraints" else "OK, I'll find a different day or time.", mapped="change")
+        self.post("middle", "system", f"{self.name(key)} wants a different day or time (change {self.change_round} "
+                  f"of {SETTINGS['max_change_rounds']}): \u201c{text}\u201d \u2192 {describe(cons)} (read by {how}). "
                   "Not offering again: " + ", ".join(f"{t:%a %b %-d %-I:%M %p}" for t in sorted(self.offered)) + ".")
-        self._negotiate(note=f"{self.name(key)} asked for a different day or time than "
-                             ", ".join(f"{fmt(t)} ({t:%A} {w})" for t, w in self.rejected) + "; those windows, and "
-                             "every time offered in an earlier round, are no longer offered.")
+        b = self.backup
+        minutes = self.cons.get("minutes") or self.minutes
+        if not b:
+            reason = "there is no backup left"
+        elif minutes != self.minutes:
+            reason = f"it was agreed for {self.minutes} min"
+        else:
+            reason = why_not(self.cons, b[0], self.minutes) or self._still_free(b[0])
+        if reason is None:  # 2. backup right away, no new negotiation
+            self.backup, self.slot = None, b
+            f = followed(cons, b[0])
+            self.post("middle", key, f"{self.name(key)} said \u201c{text}\u201d. Our backup {fmt(b[0])} fits "
+                      f"({f}), so I'm moving the hold there. No new negotiation needed.")
+            return self._hold_and_ask({
+                key: f"You said \u201c{text}\u201d, so I moved it to our backup: {f}. ",
+                other: f"{self.name(key)} asked for \u201c{text}\u201d, so I moved it to our backup. "})
+        # 3. backup used up or breaks the reason: renegotiate under the constraint
+        self.post("middle", "system", (f"Backup {fmt(b[0])} doesn't fit: {reason}." if b else "No backup left.")
+                  + " The agents renegotiate; slots that break it are filtered out in code.")
+        if self.hold and self.hold["status"] == "tentative":
+            holds.LISTENERS.pop(self.hold["id"], None)
+            rec = holds.release(self.cal, self.hold["id"])
+            if rec["status"] == "confirmed":  # skipped to end of day meanwhile
+                self.hold = rec
+                return self._finish()
+            if not self.dry_run:
+                self.post("middle", "system", f"Removed the tentative {fmt(cur[0])} hold from both calendars.")
+                self.trace.setdefault("deleted_events", []).extend(rec["events"])
+        self.hold, self.backup, self.minutes = None, None, minutes
+        self.last_change = (key, text, cons)
+        self._negotiate(note=f"{self.name(key)} asked to change {fmt(cur[0])}: \u201c{text}\u201d. Code already "
+                             f"removed every slot that breaks it ({describe(self.cons)}) and every time offered "
+                             "before. Start your reason with how you followed it, e.g. \"You said not Thursday, "
+                             "so ...\".")
+
+    def _still_free(self, t):
+        """Re-check the backup on both calendars, ignoring our own hold."""
+        if self.dry_run:
+            return None
+        ids = [p["calendar_id"] for p in self.people]
+        busy = freebusy(self.cal, ids, t - timedelta(hours=2), t + timedelta(minutes=self.minutes, hours=2))
+        hs = datetime.fromisoformat(self.hold["start"])
+        he = hs + timedelta(minutes=self.hold["minutes"])
+        blocks = []
+        for bl in busy.values():
+            for s, e in bl:  # cut our own hold out of each busy block
+                blocks += [(a, b) for a, b in ((s, min(e, hs)), (max(s, he), e)) if a < b]
+        return None if t in free_slots({"x": blocks}, t.date(), t.date(), self.minutes, t) else "it's no longer free"
+
+    def _confirm(self, why):
+        holds.LISTENERS.pop(self.hold["id"], None)
+        self.hold = holds.confirm(self.cal, self.hold["id"], why)
+        self._finish()
+
+    def _auto_confirmed(self, rec):
+        if self.state in ("done", "failed"):
+            return
+        self.hold = rec
+        when = ("Skipped to end of day" if rec["why"] == "skipped to end of day"
+                else f"Deadline passed ({self.deadline_text()})")
+        self.post("middle", "system", f"{when}: nobody changed it, so the hold is confirmed.")
+        self._finish()
+
+    def skip_to_end_of_day(self):
+        """Demo button: act as if the day ended now (HTTP thread)."""
+        if not self.hold or self.hold["status"] != "tentative":
+            return {"ok": False, "error": "nothing is pencilled in right now"}
+        holds.sweep(calendar, hold_ids=[self.hold["id"]])
+        return {"ok": True}
 
     def _finish(self):
         self.open_q.clear()
+        t = self.slot[0]
+        if self.hold and not self.dry_run:
+            self.post("middle", "system", f"Confirmed on both calendars: Google event status "
+                      f"\"{', '.join(sorted(set(self.hold.get('api_status') or [])))}\", title "
+                      f"\"{self.hold['title']}\" ({self.hold.get('why')}).", kind="final")
         for k in self.keys:
-            self.post(k, "agent", f"Plan booked with {self.name(self.other(k))}."
+            self.post(k, "agent", f"Plan booked with {self.name(self.other(k))}: {t:%A, %b %-d} at {hm(t)}."
                       + (" (Dry run: not on your calendar.)" if self.dry_run else ""), kind="final")
-        self.post("middle", "system", f"Done: {fmt(self.slot[0])}, {self.minutes} min.", kind="final")
+        self.post("middle", "system", f"Done: {fmt(t)}, {self.minutes} min"
+                  + (f" ({self.hold.get('why')})." if self.hold else "."), kind="final")
         self.set_state("done")

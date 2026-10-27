@@ -8,8 +8,16 @@
     python brain/demo.py "let's catch up Thursday" --mayo noon --frankie noon --confirm keep \
         --dry-run --extra-busy tests/fixtures/noon_blocked_thu.json        # force a fallback
 
+    python brain/demo.py "let's catch up Thursday" --mayo morning --frankie night \
+        --mayo-confirm keep --frankie-confirm "not thursday, something later" --dry-run \
+        --skip-to-end-of-day    # Frankie's reason moves the hold; nobody replies -> confirmed now
+
 Answers can be keywords or anything a person might say out loud.
---confirm sets both people's keep/change per round (comma list);
+An agreed time is pencilled in as a tentative hold. Without
+--skip-to-end-of-day, a hold nobody answers stays tentative and the web or tap
+server's timer confirms it at the deadline (11:59 PM ET).
+--confirm sets both people's keep/change per round (comma list, or | when a
+reply has commas: "keep|not thursday, something later");
 --mayo-confirm / --frankie-confirm set one person's.
 """
 import argparse
@@ -30,6 +38,8 @@ def main():
     ap.add_argument("--extra-busy", help="JSON of synthetic busy blocks per person (dry runs only, "
                     "never written to a calendar), e.g. tests/fixtures/noon_blocked_thu.json")
     ap.add_argument("--confirm", help="keep/change per round for both, e.g. change,keep")
+    ap.add_argument("--skip-to-end-of-day", action="store_true",
+                    help="when nobody else answers a hold, act as if the day ended: confirm it now")
     for k in PEOPLE:
         ap.add_argument(f"--{k}", help=f"{PEOPLE[k]['name']}'s morning/noon/night answer, or 'timeout'")
         ap.add_argument(f"--{k}-confirm", help=f"{PEOPLE[k]['name']}'s keep/change per round")
@@ -48,9 +58,12 @@ def main():
         if s.state != "failed":
             s.propose(pick=a["pick"])
         return
-    confirms = {k: (a[f"{k}_confirm"] or a["confirm"] or "").split(",") for k in PEOPLE}
+    raw = {k: a[f"{k}_confirm"] or a["confirm"] or "" for k in PEOPLE}
+    scripted = any(raw.values())  # scripted replies: once used up, that person stays silent
+    confirms = {k: v.split("|" if "|" in v else ",") for k, v in raw.items()}
     confirms = {k: [x for x in v if x] for k, v in confirms.items()}
     while s.state not in DONE:
+        answered = False
         for key, p in PEOPLE.items():
             q = s.questions.get(p["device_id"])
             while q:
@@ -59,13 +72,27 @@ def main():
                         f"[{p['name']}'s pebble] {q['say']} (Enter = no answer) ")
                     a[key] = ""  # answer once
                 else:
-                    ans = confirms[key].pop(0) if confirms[key] else input(
-                        f"[{p['name']}'s pebble] {q['say']} ")
+                    ans = confirms[key].pop(0) if confirms[key] else "" if scripted else input(
+                        f"[{p['name']}'s pebble] {q['say']} (Enter = no reply) ")
                 if not ans or ans == "timeout":
                     break
-                s.answer(p["device_id"], ans)
+                r = s.answer(p["device_id"], ans)
+                answered = True
+                if r.get("say"):
+                    print(f'[{p["name"]}\'s pebble] {r["say"]}')
+                if s.state == "pencilled_in":
+                    s.advance()  # a keep or change acts right away
                 q = s.questions.get(p["device_id"])
-        s.advance(force=True)
+        if s.state == "pencilled_in" and not answered:  # nobody else is going to reply
+            if not a["skip_to_end_of_day"]:
+                h = s.result["hold"]
+                print(f"Pencilled in {h['slot']} (tentative); confirms {h['deadline_text']} unless "
+                      "someone changes it (the web or tap server timer does that).")
+                break
+            print("Skipping to end of day: nobody else replied.")
+            s.skip_to_end_of_day()
+        elif s.state != "pencilled_in":
+            s.advance(force=True)
     print(f"Final: {s.state}. Trace: {s.public()['trace_file']}")
 
 

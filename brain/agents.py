@@ -27,6 +27,8 @@ Reply with strict JSON only, no prose, no code fences:
 {{"ranking": [slot numbers, best for {name} first, every slot exactly once],
   "decision": "propose" | "accept" | "counter",
   "pick": slot number you want,
+  "backup": a second slot number (not the pick), ideally another day, used
+            right away if someone wants to change the plan,
   "reason": "one short sentence, friendly, under 20 words"}}
 Rules, most important first:
 - What a person said in this chat is the top priority. It always beats
@@ -40,6 +42,11 @@ Rules, most important first:
 - An answer marked "no answer" was NOT said; never claim they asked for it.
 - If you pick a fallback slot, say so plainly, e.g. "Nothing worked at noon,
   so how about <time>?" Use the real slot time.
+- Backup: when you propose or counter, name a backup too. When you accept,
+  keep the other agent's backup if it works for {name}, or name a better one
+  nobody offered as a pick. Mention the backup briefly in your reason.
+- If the message says someone asked for a change, start your reason with how
+  you followed what they said, e.g. "You said not Thursday, so ...".
 - "propose" only when you go first. Otherwise "accept" (pick = the other
   agent's pick) or "counter" (pick = a new slot). Settle quickly: in the last
   round, accept any fair slot in a window someone said."""
@@ -84,6 +91,8 @@ def _checker(n, first, offered):
             raise ValueError(f"ranking must list 1..{n} once: {r.get('ranking')}")
         if r.get("pick") not in range(1, n + 1):
             raise ValueError(f"bad pick {r.get('pick')}")
+        if n > 1 and (r.get("backup") not in range(1, n + 1) or r["backup"] == r["pick"]):
+            raise ValueError(f"backup must be a slot 1..{n} other than the pick: {r.get('backup')}")
         want = {"propose"} if first else {"accept", "counter"}
         if r.get("decision") not in want:
             raise ValueError(f"decision must be one of {want}")
@@ -106,6 +115,23 @@ def allowed_picks(slots, seen, mine, theirs, first):
         if ok:
             return ok
     return fresh
+
+
+def fix_backup(r, slots, seen, mine, theirs):
+    """The backup must be a slot never offered as a pick, not the pick itself,
+    in a window someone said when possible, and preferably on another day.
+    Returns (backup, why moved or None). Code moves it; no extra model call."""
+    if len(slots) < 2:
+        return None, None
+    ok = [i for i in allowed_picks(slots, list(seen) + [r["pick"]], mine, theirs, False) if i != r["pick"]]
+    if r.get("backup") in ok:
+        return r["backup"], None
+    if not ok:
+        return None, "no slot left for a backup"
+    day = slots[r["pick"] - 1][0].date()
+    ranked = [i for i in r["ranking"] if i in ok]
+    best = next((i for i in ranked if slots[i - 1][0].date() != day), ranked[0])
+    return best, f"backup {r.get('backup')} was already offered or breaks the window rule"
 
 
 def problem(r, allowed):
@@ -141,7 +167,9 @@ def agent_turn(me, other, activity, know, context, round_no, last=None, n=3, con
         user += "You go first. Propose the slot you want."
         summary = f"{me['name']}'s agent proposes first from {n} shared slots"
     else:
-        user += (f"{other['name']}'s agent wants slot {last['pick']}: \"{last['reason']}\"\n"
+        user += (f"{other['name']}'s agent wants slot {last['pick']}"
+                 + (f" (backup: slot {last['backup']})" if last.get("backup") else "")
+                 + f": \"{last['reason']}\"\n"
                  "Accept it or counter with a slot nobody offered yet.")
         summary = (f"{me['name']}'s agent answers {other['name']}'s pick of slot "
                    f"{last['pick']} (round {round_no})")
@@ -166,13 +194,21 @@ def agent_turn(me, other, activity, know, context, round_no, last=None, n=3, con
             else:
                 r.update(pick=nxt, reason="")
             turn["reply"], turn["moved_by_code"] = r, why
+    if slots:
+        r = dict(turn["reply"])
+        r["backup"], moved = fix_backup(r, slots, seen, mine, theirs)
+        if moved:
+            turn["backup_moved_by_code"] = moved
+        turn["reply"] = r
     return turn
 
 
 def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=print, notes=None,
               on_turn=None, context_note="", before_turn=None):
     """Proposer's agent picks first, the other accepts or counters, up to
-    MAX_ROUNDS rounds; then the best combined rank wins. No slot is ever
+    MAX_ROUNDS rounds; then the best combined rank wins. Each proposal names a
+    backup too; the accepting agent keeps it or names its own (same turns, no
+    extra call), and code checks it was never offered as a pick. No slot is ever
     offered twice (checked in code, see allowed_picks).
     `slots` = [(start, window)]. Returns {"agreed_index", "how", "turns",
     "ranked", "offered"} where `ranked` lists every slot index, agreed first,
@@ -182,10 +218,11 @@ def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=
         log("  Only one shared slot, nothing to negotiate.")
         if on_turn:
             on_turn(None, {"decision": "only", "pick": 1, "reason": "Only one shared slot, nothing to negotiate."}, slots[0])
-        return {"agreed_index": 0, "how": "only one shared slot", "turns": [], "ranked": [0], "offered": [0]}
+        return {"agreed_index": 0, "how": "only one shared slot", "turns": [], "ranked": [0], "offered": [0],
+                "backup_index": None, "backup_how": "no other shared slot"}
     ctx = {p["name"]: calendar_context(busy_by_cal[p["calendar_id"]], slots, minutes, notes)
            for p in (proposer, other)}
-    turns, rankings, last, agreed, how = [], {}, None, None, None
+    turns, rankings, last, agreed, how, backup, backup_how = [], {}, None, None, None, None, None
     seen, by = [], {}
     order = [proposer, other]
     for round_no in range(1, MAX_ROUNDS + 1):
@@ -203,11 +240,13 @@ def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=
             if on_turn:
                 on_turn(me, r, slots[r["pick"] - 1])
             if r["decision"] == "accept":
-                agreed, how = r["pick"], f"agreed in round {round_no}"
+                agreed, how, backup = r["pick"], f"agreed in round {round_no}", r.get("backup")
+                backup_how = ("both agents named it" if backup and backup == last.get("backup")
+                              else f"{me['name']}'s agent named it when accepting")
                 break
             seen.append(r["pick"])
             by[r["pick"]] = f"{me['name']}'s agent"
-            last = {"pick": r["pick"], "reason": r["reason"] or f"slot {r['pick']}"}
+            last = {"pick": r["pick"], "backup": r.get("backup"), "reason": r["reason"] or f"slot {r['pick']}"}
         if agreed:
             break
     # Combined rank: lowest summed position; ties go to the proposer's order.
@@ -215,10 +254,13 @@ def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=
     by_score = sorted(score, key=lambda s: (score[s], rankings[proposer["name"]].index(s)))
     if not agreed:
         agreed, how = by_score[0], "best combined rank"
+        backup = next((s for s in by_score if s != agreed and s not in seen), None)
+        backup_how = "next-best combined rank"
         log(f"  No agreement after {MAX_ROUNDS} rounds; best combined rank is slot {agreed}.")
     ranked = [agreed - 1] + [s - 1 for s in by_score if s != agreed]
     return {"agreed_index": agreed - 1, "how": how, "turns": turns, "ranked": ranked,
-            "combined_rank": score, "offered": sorted({s - 1 for s in seen} | {agreed - 1})}
+            "combined_rank": score, "offered": sorted({s - 1 for s in seen} | {agreed - 1}),
+            "backup_index": backup - 1 if backup else None, "backup_how": backup_how}
 
 
 LENGTH_SYSTEM = """You are {name}'s personal scheduling agent inside Ketchup.
@@ -232,6 +274,11 @@ Reply with strict JSON only, no prose, no code fences:
 Rules:
 - A shorter meeting fits more calendars; a longer one honors who wants more time.
   Be fair, and settle quickly.
+- Backup: when you propose or counter, name a backup too. When you accept,
+  keep the other agent's backup if it works for {name}, or name a better one
+  nobody offered as a pick. Mention the backup briefly in your reason.
+- If the message says someone asked for a change, start your reason with how
+  you followed what they said, e.g. "You said not Thursday, so ...".
 - "propose" only when you go first. Otherwise "accept" (minutes = the other
   agent's minutes) or "counter" (different minutes)."""
 

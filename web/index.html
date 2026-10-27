@@ -44,6 +44,17 @@
   form button { border:0; background:var(--ink); color:#fff; border-radius:10px; padding:0 14px; font:inherit; cursor:pointer; }
   form.waiting input { border-color:var(--red); box-shadow:0 0 0 3px #d7263d22; }
   form input:disabled, form button:disabled { opacity:.45; }
+  #hold { display:none; padding:10px 14px; border-bottom:1px solid var(--line); background:#fffaf3; font-size:13px; gap:8px; align-items:center; flex-wrap:wrap; }
+  #hold.on { display:flex; }
+  .badge { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; padding:3px 8px; border-radius:999px; }
+  .badge.tentative { background:#fff1c2; color:#8a5a00; border:1px dashed #c9940a; }
+  .badge.confirmed { background:#dff5e3; color:#1e7a34; border:1px solid #1e7a34; }
+  .badge.released { background:#eee; color:var(--muted); }
+  #hold .backup { color:var(--muted); }
+  #skip { margin-left:auto; border:1px solid var(--line); background:#fff; border-radius:999px; padding:5px 12px; font:inherit; font-size:12px; cursor:pointer; }
+  #skip:disabled { opacity:.4; cursor:default; }
+  .system.hold { color:#8a5a00; font-weight:600; }
+  .system.backup { color:var(--frankie); }
   .empty { color:var(--muted); text-align:center; margin:auto; font-size:14px; }
 </style>
 </head>
@@ -60,6 +71,8 @@
     <div class="log" id="log-mayo"><div class="empty">Mayo's agent will ask here.</div></div>
     <form data-person="mayo"><input placeholder="Type as Mayo…" disabled><button disabled>Send</button></form></section>
   <section class="col"><h2>Mayo's agent ⇄ Frankie's agent</h2>
+    <div id="hold"><span class="badge" id="hold-badge"></span><span id="hold-text"></span><span class="backup" id="hold-backup"></span>
+      <button id="skip" title="Act as if the day ended now: holds nobody changed get confirmed">Skip to end of day</button></div>
     <div class="log" id="log-middle"><div class="empty">The agents talk here.</div></div></section>
   <section class="col"><h2><span class="dot" style="background:var(--frankie)"></span>Frankie + Frankie's agent</h2>
     <div class="log" id="log-frankie"><div class="empty">Frankie's agent will ask here.</div></div>
@@ -85,6 +98,7 @@ function bubble(m) {
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 function render(s) {
+  if (s.phrase && document.activeElement !== $("#phrase")) { $("#phrase").value = s.phrase; $("#dry").checked = s.dry_run; }
   names = s.people;
   for (const m of s.messages) {
     const log = $("#log-" + m.channel); log.querySelector(".empty")?.remove();
@@ -100,6 +114,16 @@ function render(s) {
   for (const f of document.querySelectorAll("form")) {
     const on = !!s.waiting_for[f.dataset.person];
     f.classList.toggle("waiting", on); f.querySelector("input").disabled = !on; f.querySelector("button").disabled = !on;
+  }
+  const h = s.hold, bar = $("#hold");
+  bar.classList.toggle("on", !!h);
+  if (h) {
+    $("#hold-badge").className = "badge " + h.status; $("#hold-badge").textContent = h.status;
+    $("#hold-text").textContent = h.status === "tentative"
+      ? `${h.slot}. Tentative, confirms ${h.deadline_text} unless someone changes it.` + (h.kept.length ? ` Kept by ${h.kept.join(" and ")}.` : "")
+      : h.status === "confirmed" ? `${h.slot}. Confirmed (${h.why}).` : `${h.slot}. Hold removed.`;
+    $("#hold-backup").textContent = s.backup && h.status === "tentative" ? `Backup: ${s.backup}` : "";
+    $("#skip").disabled = h.status !== "tentative";
   }
   const done = ["done", "failed"].includes(s.state);
   $("#status").textContent = `${s.dry_run ? "Dry run" : "Real booking"} · ${s.state}` + (s.slot ? ` · ${s.slot}` : "");
@@ -128,6 +152,13 @@ for (const f of document.querySelectorAll("form")) f.onsubmit = async e => {
   e.preventDefault(); const inp = f.querySelector("input"); const text = inp.value.trim();
   if (!text || !sid) return; inp.value = "";
   const r = await fetch(`/api/session/${sid}/say`, {method: "POST", body: JSON.stringify({person: f.dataset.person, text})});
+  if (!r.ok) $("#status").textContent = (await r.json()).error;
+  poll();
+};
+
+$("#skip").onclick = async () => {
+  $("#skip").disabled = true;
+  const r = await fetch(`/api/session/${sid}/skip_to_end_of_day`, {method: "POST", body: "{}"});
   if (!r.ok) $("#status").textContent = (await r.json()).error;
   poll();
 };

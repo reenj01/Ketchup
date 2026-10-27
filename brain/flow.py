@@ -1,6 +1,6 @@
 """What happens after two pebbles tap: a small state machine.
 
-paired -> asking_time_of_day -> proposing -> confirming -> booked | failed
+paired -> asking_time_of_day -> proposing -> pencilled_in -> booked | failed
 (with --dry-run, "booked" becomes "agreed (dry run, not booked)").
 
 1. Nudge: "Mayo and Frankie want to catch up Thursday."
@@ -12,8 +12,15 @@ paired -> asking_time_of_day -> proposing -> confirming -> booked | failed
    (30 min buffer + both calendars), other windows the same day are offered and
    the pebbles say so ("Nothing worked at noon, so how about 10:30 AM?").
    Next week only if nothing works in any window on the plan's dates.
-4. Both pebbles ask "How about Thu Oct 29 at 12:00 PM? Want to change it?"
-   Both say keep -> book. Anyone says change -> next-best option, at most 2 times.
+   They agree a backup slot in the same turns.
+4. The slot goes on both calendars as a tentative hold (holds.py) and both
+   pebbles say "How about Thu Oct 29 at 12:00 PM? I've pencilled it in. If I
+   don't hear from you, it's confirmed tonight. Want to change it?"
+   keep -> kept (both kept = confirmed now). Silence -> confirmed at the
+   deadline (11:59 PM ET, or 30 min before it starts if sooner).
+   change + reason ("not thursday, something later") -> hard constraints
+   (constraints.py): the backup if it fits, else the agents renegotiate under
+   them. Offered times are never offered again. At most 2 changes.
 
 Answers are voice transcripts; Muse Spark Open maps them to a choice. A plain
 keyword ("night", "keep") is accepted directly, for testing.
@@ -25,10 +32,13 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from agents import fmt, fmt_windows, negotiate
+import holds
+from agents import fmt, negotiate
 from book import book
+from constraints import describe, followed, merge, parse_change, spoken, why_not
 from calendar_slots import (ORDER, SETTINGS, WINDOWS, at, candidates, fallback_note, free_slots,
                             free_windows, freebusy, wanted_windows)
+from calendar_slots import window_of as w_of
 from gcal import PEOPLE, calendar
 from infer_prefs import infer_prefs
 from parse_plan import TZ, ask_json, parse_plan
@@ -37,6 +47,7 @@ TRACES = Path(__file__).parent.parent / "traces"
 HABIT_TO_WINDOW = {"morning": "morning", "afternoon": "noon", "evening": "night"}
 CHOICES = {"time_of_day": ORDER, "confirm": ["keep", "change"]}
 DONE = ("booked", "agreed (dry run, not booked)", "failed")
+Q_CHANGE = "Want to change it?"
 
 
 def hm(t):
@@ -89,6 +100,8 @@ class Session:
         self.state, self.questions, self.answers, self.confirms = "paired", {}, {}, {}
         self.deadline, self.options, self.proposal_i, self.change_round = None, [], 0, 0
         self.lines, self.result, self.notes, self.shared = [], {}, {}, []
+        self.slot, self.backup, self.hold, self.offered, self.rejected = None, None, None, set(), []
+        self.cons, self.last_change = {}, None
         # Synthetic busy blocks {person_key: [(start, end)]}, dry runs only (testing).
         assert not extra_busy or dry_run, "extra busy blocks are for dry runs only"
         self.extra_busy = extra_busy or {}
@@ -186,21 +199,36 @@ class Session:
         if not q:
             return {"ok": False, "error": f"no open question for {device_id} (state {self.state})"}
         try:  # outside the lock: both pebbles' answers are understood in parallel
-            choice, how, detail = map_answer(q["kind"], q["say"], text)
+            if q["kind"] == "confirm":
+                r = parse_change(text, self.slot[0], datetime.now(TZ).date(), question=Q_CHANGE)
+                choice = {"yes": "change", "no": "keep"}.get(r["change"])
+                how, detail, cons = r["how"], r["detail"], r["constraints"]
+            else:
+                (choice, how, detail), cons = map_answer(q["kind"], q["say"], text), None
         except Exception as e:
             return {"ok": False, "error": f"couldn't map answer: {e}"}
         with self.lock:
             if self.questions.get(device_id) is not q:
                 return {"ok": False, "error": "question closed while the answer was being understood"}
             self.step("answer", person=p["name"], device_id=device_id, question=q["say"],
-                      heard=text, mapped_to=choice, how=how, mapping=detail)
+                      heard=text, mapped_to=choice, how=how, mapping=detail,
+                      constraints=cons and describe(cons))
             self.say(f'  {p["name"]} said "{text}" -> {choice or "unclear, asking again"}')
             if not choice:
                 return {"ok": False, "error": "unclear answer, question stays open", "say": q["say"]}
             (self.answers if q["kind"] == "time_of_day" else self.confirms)[p["name"]] = \
-                {"choice": choice, "source": "voice", "heard": text}
+                {"choice": choice, "source": "voice", "heard": text, "constraints": cons}
             del self.questions[device_id]
-            return {"ok": True, "mapped_to": choice}
+            other = next(o["name"] for o in self.people if o is not p)
+            if q["kind"] == "time_of_day":
+                say = f"Got it, {choice}. I'll check with {other}'s agent."
+            elif choice == "keep":
+                say = (f"Great, keeping it. It's confirmed once {other} keeps it too, or "
+                       f"{self.result['hold']['deadline_text']} if {other} doesn't reply.")
+            else:
+                say = f"Got it: {describe(cons)}. Give me a moment."
+            return {"ok": True, "mapped_to": choice, "say": say,
+                    "constraints": cons and describe(cons)}
 
     def advance(self, force=False):
         """Move on when every open question is answered (or timed out / forced)."""
@@ -219,13 +247,13 @@ class Session:
                                  f"{choice or 'no preference'}")
                     self.questions = {}
                     self.propose()
-                elif self.state == "confirming" and not self.questions:
+                elif self.state == "pencilled_in":
                     self.confirm_result()
             except Exception as e:
                 self.fail(e)
 
     # ---- 3. agents share free windows and pick ------------------------------
-    def propose(self, pick=None):
+    def propose(self, pick=None, note=""):
         self.set_state("proposing")
         plan, minutes = self.plan, self.plan["duration_min"]
         choices = [a["choice"] for a in self.answers.values() if a.get("choice")] if pick is None else []
@@ -244,10 +272,13 @@ class Session:
                 self.say("  (dry run with synthetic busy blocks added: " + "; ".join(
                     f"{PEOPLE[k]['name']} {s:%a} {hm(s)}-{hm(e)}" for k, bl in self.extra_busy.items()
                     for s, e in bl) + ")")
-            shared = free_slots(busy, start, end, minutes, self.now)
+            gone = {(t.date(), w) for t, w in self.rejected}  # a changed time rules out its window that day
+            shared = [t for t in free_slots(busy, start, end, minutes, datetime.now(TZ))
+                      if (t.date(), w_of(t)) not in gone and why_not(self.cons, t) is None]
             said = [a["choice"] for a in self.answers.values()
                     if a.get("choice") and a.get("source") == "voice"] if pick is None else []
-            cands = candidates(shared, minutes, choices, said=said)
+            cands = (candidates(shared, minutes, choices, said=said, exclude=self.offered)
+                     or candidates(shared, minutes, choices, said=said))
             ch = {p["name"]: self.answers.get(p["name"], {}).get("choice") for p in self.people}
             notes = {t: {p["name"]: fallback_note(t, w, ch[p["name"]], ch[o["name"]], shared)
                          for p, o in (self.people, self.people[::-1])} for t, w in cands}
@@ -283,13 +314,28 @@ class Session:
         self.say("Agents negotiating:")
         res = negotiate(self.people[0], self.people[1], plan["activity"], cands, busy,
                         minutes, know, log=self.say,
-                        notes={t: self.note_text(t).strip(" ()") for t, _ in cands})
+                        notes={t: self.note_text(t).strip(" ()") for t, _ in cands}, context_note=note)
         self.trace["agent_turns"] += res.pop("turns")
-        self.trace["agreement"] = res
-        self.options = [cands[i] for i in res["ranked"]]
-        self.step("agents_agreed", how=res["how"], options_in_order=[f"{fmt(t)} [{w}]" for t, w in self.options])
-        self.proposal_i = 0
-        self.ask_confirm()
+        self.trace.setdefault("agreements", []).append(res)
+        self.offered |= {cands[i][0] for i in res["offered"]}
+        self.slot = cands[res["agreed_index"]]
+        self.backup = cands[res["backup_index"]] if res.get("backup_index") is not None else None
+        if self.backup:
+            self.offered.add(self.backup[0])
+        self.step("agents_agreed", how=res["how"], slot=fmt(self.slot[0]),
+                  backup=self.backup and fmt(self.backup[0]), backup_how=res.get("backup_how"))
+        self.say(f"Agreed: {fmt(self.slot[0])}" + (f", backup {fmt(self.backup[0])} ({res['backup_how']})"
+                                                  if self.backup else ", no backup left"))
+        lead = {}
+        if self.last_change:
+            name, text, c = self.last_change
+            f = followed(c, self.slot[0])
+            lead = {p["device_id"]: (f"You said {spoken(c) or 'a different time'}, so I found a new time"
+                                     + (f": {f}. " if f else ". ") if p["name"] == name else
+                                     f"{name} said {spoken(c) or 'a different time'}, so we found a new time. ")
+                    for p in self.people}
+            self.last_change = None
+        self.hold_and_ask(lead)
 
     def note_text(self, t):
         notes = {who: x for who, x in self.notes.get(t, {}).items() if x}
@@ -300,7 +346,7 @@ class Session:
 
     def proposal_line(self, p, t):
         """What one pebble says, plain about any fallback."""
-        q = f"how about {t:%a %b %-d} at {hm(t)}? Want to change it?"
+        q = f"how about {t:%a %b %-d} at {hm(t)}?"
         choice = self.answers.get(p["name"], {}).get("choice")
         note = self.notes.get(t, {}).get(p["name"])
         if note and note.startswith("nothing worked"):
@@ -317,41 +363,125 @@ class Session:
             lead = f"{other['name']} {said} {oa['choice']}, so to meet in the middle, {q}"
         else:
             lead = q[0].upper() + q[1:]
-        if not self.change_round:
-            return lead
-        return "Next option: " + (lead[0].lower() + lead[1:] if lead.startswith("How") else lead)
+        return lead
 
     def describe_answer(self, name):
         a = self.answers.get(name, {})
         return f"{a.get('choice') or 'no preference'} ({a.get('source', 'not asked')})"
 
-    # ---- 4. keep / change --------------------------------------------------
-    def ask_confirm(self):
-        t, w = self.options[self.proposal_i]
+    # ---- 4. tentative hold, keep / change -----------------------------------
+    def hold_and_ask(self, lead=None):
+        t, w = self.slot
+        now = datetime.now(TZ)
+        if self.hold and self.hold["status"] == "tentative":
+            self.hold = holds.move(self.cal, self.hold["id"], t, self.plan["duration_min"], now)
+        else:
+            self.hold = holds.create(self.cal, self.people, t, self.plan["duration_min"], self.plan["activity"],
+                                     self.sid, self.trace["source"], self.dry_run, now)
+            holds.LISTENERS[self.hold["id"]] = self.on_auto_confirmed
+        dl = datetime.fromisoformat(self.hold["deadline"])
+        self.result["hold"] = {"status": self.hold["status"], "slot": fmt(t), "deadline": dl.isoformat(),
+                               "deadline_text": holds.deadline_text(dl, now),
+                               "backup": self.backup and fmt(self.backup[0]),
+                               "api_status": self.hold.get("api_status"), "event_ids": [
+                                   e["event_id"] for e in self.hold["events"]]}
         self.result["proposal"] = {"slot": fmt(t), "window": w, "start": t.isoformat()}
+        self.say(f"Pencilled in {fmt(t)} (tentative"
+                 + (", dry run: Ketchup only" if self.dry_run else f", Google status {self.hold.get('api_status')}")
+                 + f"); confirms {self.result['hold']['deadline_text']} unless someone changes it.")
         self.confirms = {}
-        self.set_state("confirming")
-        self.ask("confirm", {p["device_id"]: self.proposal_line(p, t) for p in self.people})
+        self.set_state("pencilled_in")
+        when = "tonight" if dl.time() == holds.CONFIRM_AT else f"at {hm(dl)}"
+        self.ask("confirm", {p["device_id"]: f"{(lead or {}).get(p['device_id'], '')}{self.proposal_line(p, t)} "
+                 f"I've pencilled it in. If I don't hear from you, it's confirmed {when}. {Q_CHANGE}"
+                 for p in self.people})
 
     def confirm_result(self):
         changers = [n for n, c in self.confirms.items() if c["choice"] == "change"]
-        if not changers:
-            return self.book()
+        if changers:
+            return self.change(changers[0])
+        if all(p["name"] in self.confirms for p in self.people):
+            return self.confirm("both kept it")
+
+    def change(self, name):
+        c = self.confirms[name]
+        text, cons = c["heard"].strip().rstrip(".!"), c["constraints"] or {}
+        self.questions = {}  # the other pebble's question is withdrawn
+        if self.change_round >= SETTINGS["max_change_rounds"]:
+            self.say(f"{name} wants a change, but that's the most changes this time; keeping {fmt(self.slot[0])}.")
+            return self.confirm("change limit reached")
         self.change_round += 1
-        self.step("change_requested", by=changers, change_round=self.change_round)
-        if self.change_round > SETTINGS["max_change_rounds"] or self.proposal_i + 1 >= len(self.options):
-            return self.fail(f"No time both kept after {self.change_round - 1} changes. Try again later.")
-        self.proposal_i += 1
-        self.say(f"{' and '.join(changers)} {'want' if len(changers) > 1 else 'wants'} a change (change {self.change_round} of "
-                 f"{SETTINGS['max_change_rounds']}): next-best option.")
-        self.ask_confirm()
+        self.cons = merge(self.cons, cons)
+        self.rejected.append(self.slot)
+        self.step("change_requested", by=name, heard=text, constraints=describe(self.cons),
+                  change_round=self.change_round)
+        self.say(f'{name} wants a change (change {self.change_round} of {SETTINGS["max_change_rounds"]}): '
+                 f'"{text}" -> {describe(cons)}')
+        b = self.backup
+        reason = "there is no backup left" if not b else why_not(self.cons, b[0])
+        if reason is None:
+            self.backup, self.slot = None, b
+            f = followed(cons, b[0])
+            self.say(f"  Backup {fmt(b[0])} fits ({f}): moving the hold there, no new negotiation.")
+            said = spoken(cons) or "a different time"
+            return self.hold_and_ask({p["device_id"]: (f"You said {said}, so I moved it to our backup"
+                                                       + (f": {f}. " if f else ". ") if p["name"] == name else
+                                                       f"{name} said {said}, so I moved it to our backup. ")
+                                      for p in self.people})
+        self.say(f"  Backup {'doesn' + chr(39) + 't fit: ' + reason if b else 'used up'}; renegotiating under it.")
+        if self.hold and self.hold["status"] == "tentative":
+            holds.LISTENERS.pop(self.hold["id"], None)
+            rec = holds.release(self.cal, self.hold["id"])
+            if rec["status"] == "confirmed":
+                self.hold = rec
+                return self.finish()
+            self.trace.setdefault("deleted_events", []).extend(rec["events"])
+        self.hold, self.backup, self.last_change = None, None, (name, text, cons)
+        self.propose(note=f"{name} asked to change it: \"{text}\". Code already removed every slot that breaks "
+                          f"it ({describe(self.cons)}) and every time offered before. Start your reason with how "
+                          "you followed it, e.g. \"You said not Thursday, so ...\".")
+
+    def confirm(self, why):
+        holds.LISTENERS.pop(self.hold["id"], None)
+        self.hold = holds.confirm(self.cal, self.hold["id"], why)
+        self.finish()
+
+    def on_auto_confirmed(self, rec):
+        """Deadline passed (or skip to end of day): called by holds.sweep."""
+        with self.lock:
+            if self.state != "pencilled_in":
+                return
+            self.hold = rec
+            self.say(f"Nobody changed it ({rec['why']}): confirmed.")
+            self.finish()
+
+    def finish(self):
+        t, w = self.slot
+        self.questions = {}
+        self.trace["agreed_slot"] = self.result["agreed_slot"] = {"slot": fmt(t), "window": w,
+                                                                  "start": t.isoformat()}
+        self.result["hold"].update(status=self.hold["status"], why=self.hold.get("why"),
+                                   api_status=self.hold.get("api_status"))
+        other = {p["device_id"]: next(o["name"] for o in self.people if o is not p) for p in self.people}
+        self.result["announce"] = {d: f"Plan booked with {n}." for d, n in other.items()}
+        self.step("confirmed", hold=self.hold)
+        if self.dry_run:
+            self.say(f"Confirmed {fmt(t)} ({self.hold.get('why')}). Dry run: not on any calendar.")
+            return self.set_state("agreed (dry run, not booked)")
+        self.trace["created_events"] = self.result["created_events"] = self.hold["events"]
+        self.say(f"Confirmed {fmt(t)} on both calendars ({self.hold.get('why')}), Google status "
+                 f"{self.hold.get('api_status')}:")
+        for c in self.hold["events"]:
+            self.say(f"  {c['person']}: {c['event_id']} {c.get('link')}")
+        self.set_state("booked")
 
     def book(self):
-        t, w = self.options[self.proposal_i]
+        """Manual override (--pick): book straight away, no hold."""
+        t, w = self.options[0]
         self.trace["agreed_slot"] = self.result["agreed_slot"] = {"slot": fmt(t), "window": w,
                                                                   "start": t.isoformat()}
         if self.dry_run:
-            self.say(f"Both kept {fmt(t)}. Dry run: not booking.")
+            self.say(f"Picked {fmt(t)}. Dry run: not booking.")
             return self.set_state("agreed (dry run, not booked)")
         created = book(self.cal, self.people, t, self.plan["duration_min"], self.plan["activity"])
         self.trace["created_events"] = self.result["created_events"] = created
@@ -360,6 +490,12 @@ class Session:
             self.say(f"  {c['person']}: {c['event_id']} {c['link']}")
         self.set_state("booked")
 
+    def skip_to_end_of_day(self):
+        """Demo: act as if the day ended now. Returns the confirmed records."""
+        if not self.hold or self.hold["status"] != "tentative":
+            return []
+        return holds.sweep(calendar, hold_ids=[self.hold["id"]])
+
     # ---- what the pebbles poll ----------------------------------------------
     def public(self):
         with self.lock:
@@ -367,5 +503,9 @@ class Session:
                     "dry_run": self.dry_run, "questions": self.questions,
                     "answers": self.answers, "confirms": self.confirms,
                     "change_round": self.change_round, **self.result,
+                    # what each pebble should say now: its open question, else the last announcement
+                    "speak": {p["device_id"]: (self.questions.get(p["device_id"], {}).get("say")
+                                               or self.result.get("announce", {}).get(p["device_id"]))
+                              for p in self.people},
                     "trace_file": str(self.path.relative_to(TRACES.parent)),
                     "log": self.lines[-40:]}

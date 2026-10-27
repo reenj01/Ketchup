@@ -1,6 +1,7 @@
 """Tiny tap-pairing server (standard library only).
 
     python server/tap_server.py [--port 8787] [--dry-run]
+    python server/tap_server.py --skip-to-end-of-day   # confirm every open hold now, then exit
 
 Both pebbles are the same: mic + speaker. They:
 1. POST /tap {"device_id": "pebble-mayo", "phrase": "let's catch up Thursday"}
@@ -9,10 +10,17 @@ Both pebbles are the same: mic + speaker. They:
 2. Poll GET /sessions/<id>. "questions" holds, per device, the text to say out
    loud ("say") while the session waits for that person.
 3. POST /sessions/<id>/answer {"device_id": ..., "answer": "<voice transcript>"}
-   Muse Spark Open maps it to morning/noon/night or keep/change. Plain
-   keywords work too (for testing).
+   Muse Spark Open maps it to morning/noon/night or keep/change (with the
+   reason: "not thursday, something later"). Plain keywords work too.
+   Every answer response has "say": the text to speak back right away.
+   GET /sessions/<id> has "speak": {device_id: text to say now}.
+4. After the agents agree, the time is a tentative hold on both calendars.
+   It confirms when both keep it, or at the deadline (11:59 PM ET that day,
+   or 30 min before it starts). A timer checks deadlines every
+   hold_sweep_s and at startup (state/holds.json, idempotent).
+   POST /sessions/<id>/skip_to_end_of_day {} confirms that hold now (demo).
 
-States: paired -> asking_time_of_day -> proposing -> confirming ->
+States: paired -> asking_time_of_day -> proposing -> pencilled_in ->
 booked | agreed (dry run, not booked) | failed.
 """
 import argparse
@@ -25,8 +33,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "brain"))
+import holds  # noqa: E402
 from flow import Session  # noqa: E402
-from gcal import PEOPLE  # noqa: E402
+from gcal import PEOPLE, calendar  # noqa: E402
 
 PAIR_WINDOW = 2.0
 DEVICES = {p["device_id"]: key for key, p in PEOPLE.items()}
@@ -93,12 +102,19 @@ class Handler(BaseHTTPRequestHandler):
             data = self._body()
         except json.JSONDecodeError:
             return self._send(400, {"error": "body must be JSON"})
+        parts = self.path.strip("/").split("/")
+        if len(parts) == 3 and parts[0] == "sessions" and parts[2] == "skip_to_end_of_day":
+            s = sessions.get(parts[1])
+            if not s:
+                return self._send(404, {"error": "no such session"})
+            done = s.skip_to_end_of_day()
+            return self._send(200, {"ok": True, "confirmed": [h["id"] for h in done],
+                                    "state": s.state, "speak": s.public()["speak"]})
         device = data.get("device_id")
         if device not in DEVICES:
             return self._send(400, {"error": f"unknown device_id, expected one of {list(DEVICES)}"})
         if self.path == "/tap":
             return self._send(200, tap(device, data.get("phrase")))
-        parts = self.path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "sessions" and parts[2] == "answer":
             s = sessions.get(parts[1])
             if not s:
@@ -126,8 +142,15 @@ def main():
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8787)
     ap.add_argument("--dry-run", action="store_true", help="never book")
+    ap.add_argument("--skip-to-end-of-day", action="store_true",
+                    help="confirm every open tentative hold now (as if the day ended), then exit")
     args = ap.parse_args()
+    if args.skip_to_end_of_day:
+        done = holds.sweep(calendar, hold_ids="all")
+        print(f"Confirmed {len(done)} hold(s): " + ", ".join(f"{h['title']} {h['start']}" for h in done))
+        return
     DRY_RUN = args.dry_run
+    holds.start_timer(calendar, log=lambda m: print(m, flush=True))
     print(f"Ketchup tap server on {args.host}:{args.port} (dry run: {DRY_RUN})", flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 

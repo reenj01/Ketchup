@@ -10,6 +10,12 @@ API
   POST /api/start                {"phrase": "...", "dry_run": true}  -> {"session_id"}
   GET  /api/session/<id>?since=n -> new messages, thinking, waiting_for, state
   POST /api/session/<id>/say     {"person": "mayo"|"frankie", "text": "..."}
+  POST /api/session/<id>/skip_to_end_of_day  {}  -> confirm the tentative hold now
+
+Agreed times are tentative holds (brain/holds.py, state/holds.json). A timer
+confirms each one at its deadline (11:59 PM ET, or 30 min before it starts),
+every hold_sweep_s seconds and once at startup.
+    python web/server.py --skip-to-end-of-day   # confirm every open hold now, then exit
 """
 import argparse
 import json
@@ -42,6 +48,8 @@ def load_env(path=ROOT / ".env"):
 
 load_env()
 sys.path.insert(0, str(ROOT / "brain"))
+import holds  # noqa: E402
+from gcal import calendar  # noqa: E402
 from web_flow import WebSession  # noqa: E402
 
 SESSIONS = {}
@@ -109,6 +117,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(404, {"error": "no such session"})
             r = s.answer(b.get("person", ""), b.get("text", ""))
             return self.send(200 if r["ok"] else 409, r)
+        if len(parts) == 4 and parts[:2] == ["api", "session"] and parts[3] == "skip_to_end_of_day":
+            s = SESSIONS.get(parts[2])
+            if not s:
+                return self.send(404, {"error": "no such session"})
+            r = s.skip_to_end_of_day()
+            return self.send(200 if r["ok"] else 409, r)
         self.send(404, {"error": "not found"})
 
 
@@ -116,9 +130,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--skip-to-end-of-day", action="store_true",
+                    help="confirm every open tentative hold now (as if the day ended), then exit")
     a = ap.parse_args()
+    if a.skip_to_end_of_day:
+        done = holds.sweep(calendar, hold_ids="all")
+        print(f"Confirmed {len(done)} hold(s): " + ", ".join(f"{h['title']} {h['start']}" for h in done))
+        return
     if missing_keys():
         print("Warning: missing in .env:", ", ".join(missing_keys()))
+    if not missing_keys():
+        holds.start_timer(calendar, log=lambda m: print(m, flush=True))
     print(f"Ketchup web page: http://localhost:{a.port}  (Ctrl+C to stop)")
     ThreadingHTTPServer((a.host, a.port), Handler).serve_forever()
 

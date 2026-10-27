@@ -42,10 +42,27 @@ Everything is asked and answered by voice.
    (morning vs night): slots in the two said windows rank first, never a middle window
    nobody asked for.
    Next week only if nothing works in any window on the plan's dates.
-5. **Want to change it?** Both pebbles ask "How about Thu Oct 29 at 12:30 PM? Want to
-   change it?" (each pebble says why if it's a fallback or a middle ground for its person).
-   "Change" from either person offers the next-best option, up to 2 times.
-   It's booked on both calendars only when **both** say keep.
+5. **Agree on a time and a backup.** In the same negotiation turns the agents agree on a
+   slot and a backup slot (a different day or window, never a time offered before).
+6. **Pencil it in.** A **tentative** event goes on both calendars right away (Google
+   event status `tentative`, title ending "(tentative)"), and both pebbles say "How about
+   Fri Oct 30 at 10:30 AM? I've pencilled it in. If I don't hear from you, it's confirmed
+   tonight. Want to change it?"
+7. **Confirm.** A keep confirms it for that person. The plan is confirmed when both keep
+   it, or at the deadline: 11:59 PM ET on the day the hold was made, or 30 min before the
+   meeting if that's sooner. Confirming patches both events to `confirmed` and drops the
+   "(tentative)" marker; each pebble says "Plan booked with Frankie."
+8. **Change, with a reason.** "Not Thursday, something later" is read into constraints
+   (keyword fast path, Muse Spark Open for anything else): not a day, only a day, later or
+   earlier, a time window, a date, a length. Code applies them as **hard filters** before
+   anything is ranked. If the backup meets them (and is still free), the hold moves there
+   at once and both are asked again. Otherwise the agents renegotiate under the
+   constraints and start their reasons with "You said not Thursday, so ...". What a
+   person says beats their habits. Up to 2 changes.
+
+Holds are stored in `state/holds.json` (gitignored). The tap server and the web server
+check deadlines at startup and every 30 s (`hold_sweep_s`), and confirming is idempotent (event ids are
+chosen by Ketchup, so a retried insert can't double-book).
 
 **Hard rule:** a proposed meeting always leaves at least 30 minutes free before and
 after every event on either calendar (`buffer_min` in `config/settings.json`). This is
@@ -70,8 +87,11 @@ export BASETEN_API_KEY=... META_API_KEY=... GOOGLE_SA_JSON="$(cat service-accoun
 ```
 
 - `--mayo` / `--frankie`: that person's answer (any words, or `timeout` for no answer).
-- `--confirm change,keep`: keep/change per round for both. Use `--mayo-confirm` and
-  `--frankie-confirm` to set each person separately.
+- `--confirm keep`: reply per round for both (`keep`, `change`, or a reason like
+  `not thursday, something later`; separate rounds with `|` if a reason has commas). Use
+  `--mayo-confirm` and `--frankie-confirm` per person. Once a person's replies run out
+  they stay silent.
+- `--skip-to-end-of-day`: if nobody else replies, act as if the deadline passed.
 - `--dry-run`: never book. `--pick N`: manual override that books option N.
 - Anything not given on the command line is asked interactively. Press Enter for no answer.
 
@@ -137,6 +157,9 @@ typed for now; on the pebbles they'll be spoken. Everything is live: Muse Spark
 Open maps the answers and runs both agents, and both real calendars are read.
 
 **Dry run (don't touch calendars)** is on by default. Turn it off to really book.
+While a hold is pencilled in, the middle column shows a **Tentative** badge, "Tentative,
+confirms tonight at 11:59 PM unless someone changes it", who kept it, the backup slot,
+and a **Skip to end of day** button that runs the deadline now.
 
 ### Run it on a Mac (first time)
 
@@ -179,14 +202,19 @@ Stop it with Ctrl+C. Use `--port 9000` if 8000 is taken. The macOS built-in `pyt
    rounds, else the shorter). Each agent then shares its person's free times, and the agents
    negotiate the day and time over the shared slots (30 min hard buffer, soft windows,
    same-day fallback, the same rules as the pebbles).
-3. It books right away (unless dry run), and each agent says "Frankie and you are free on
-   <day> at <time>. I've booked it in your calendar. Do you want a different day or time?"
-4. If anyone says yes, the events are deleted and the agents renegotiate without that day's
-   window and without any time offered in an earlier round. Up to `max_change_rounds` (2) changes. When both say no: "Plan booked with <other>."
+3. It pencils in a tentative event on both calendars (unless dry run) with the agreed
+   backup, and each agent says "Frankie and you are free on <day> at <time>. I've
+   pencilled it in your calendar (tentative). If I don't hear from you, it's confirmed
+   tonight at 11:59 PM. Do you want a different day or time?"
+4. "No" keeps it for that person. A reason ("not thursday, something later") becomes hard
+   constraints; the hold moves to the backup if it fits, otherwise the agents renegotiate
+   under them. When both keep it, or at the deadline: "Plan booked with <other>."
 
-This book-then-ask order applies only to the page. The pebble/CLI flow (`flow.py`) still
-books only after both keep it. API: `POST /api/start`, `GET /api/session/<id>?since=n`,
-`POST /api/session/<id>/say`. `scripts/web_drive.py` runs a whole session through it.
+The page and the pebbles share this flow. API: `POST /api/start`,
+`GET /api/session/<id>?since=n`, `POST /api/session/<id>/say`,
+`POST /api/session/<id>/skip_to_end_of_day`. `python web/server.py --skip-to-end-of-day`
+confirms every pending hold and exits. `scripts/web_drive.py` runs a whole session
+(agree with a backup, Mayo says "not thursday, something later", Frankie silent, skip).
 
 ## Tap server
 
@@ -202,10 +230,14 @@ The pebbles talk to a small standard-library server.
   send the phrase it heard.
 - `GET /sessions/<id>` returns the `state` and, per device, the current question:
   `{"kind": "time_of_day" | "confirm", "say": "<text for this pebble to speak>", "choices": [...]}`.
-  Each pebble polls it and speaks `say`.
+  Each pebble polls it and speaks `say`. Responses also carry `speak` (device → text
+  to say now, e.g. "Plan booked with Mayo.") and `hold` (status, slot, deadline, backup).
 - `POST /sessions/<id>/answer {"device_id": "pebble-frankie", "answer": "<voice transcript or keyword>"}`
-  answers that device's open question (409 if there is none, or if it's unclear).
-- States: `paired` → `asking_time_of_day` → `proposing` → `confirming` → `booked`
+  answers that device's open question (409 if there is none, or if it's unclear). The
+  reply includes `say`, what the pebble should answer back.
+- `POST /sessions/<id>/skip_to_end_of_day` confirms the pencilled-in hold now (demo);
+  `tap_server.py --skip-to-end-of-day` does it for every pending hold and exits.
+- States: `paired` → `asking_time_of_day` → `proposing` → `pencilled_in` → `booked`
   (or `agreed (dry run, not booked)`) / `failed`.
 
 ## Files
@@ -217,12 +249,15 @@ The pebbles talk to a small standard-library server.
 - `brain/infer_prefs.py`: infers each person's habits from their own calendar.
 - `brain/agents.py`: the two agents and the negotiation.
 - `brain/flow.py`: the session state machine (nudge, questions, voice answer mapping, proposal, keep/change, booking), used by the CLI and the server.
+- `brain/holds.py`: tentative holds (create, move, confirm, release), the deadline, the store and the timer.
+- `brain/constraints.py`: reads a change reason into constraints and checks slots against them.
 - `brain/book.py`: puts the same event on each calendar (via a Google service account both calendars are shared with, so nobody signs in).
-- `brain/web_flow.py`: the web page's session (three chats, length negotiation, book-then-ask, change rounds).
+- `brain/web_flow.py`: the web page's session (three chats, length negotiation, tentative hold, backup, change rounds).
 - `web/server.py`, `web/index.html`: the web page (standard library server, one HTML file). `.env.example` lists the keys it reads.
 - `scripts/web_drive.py`: drives a full web session over HTTP (optionally with screenshots).
 - `brain/timing.py`: records the time and tokens of every model and Google call.
 - `scripts/replay_negotiation.py`: re-runs a traced negotiation with the current agents (nothing booked).
 - `tests/test_slots.py`: checks the 30 min rule, the windows, the same-day fallback when noon is blocked, and that said windows rank before habits.
+- `tests/test_constraints.py`: reason parsing, constraint filtering, backups, deadlines, and holds confirming exactly once.
 - `tests/test_agent_rules.py`: checks the code rules (no repeats, said windows first).
 - `traces/`: one JSON per run with every step: the plan, free/busy, inferred profiles (input facts, model reasoning, JSON), each answer and how it was mapped, shared free windows, every agent turn, each keep/change, and the created events.
