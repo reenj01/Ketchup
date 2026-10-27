@@ -68,7 +68,15 @@ print("   Candidates:", [(fmt(t), w, n) for (t, w), n in zip(c, notes)])
 # noon open again -> noon ranks first, other windows stay as next-best options
 c2 = candidates(free_slots({}, D, D, 30, now), 30, ["noon", "noon"])
 assert c2[0][1] == "noon" and fallback_note(c2[0][0], "noon", "noon", "noon", []) is None
-# morning vs night -> noon (the middle) ranks first
-assert candidates(open_day, 30, ["morning", "night"])[0][1] == "noon"
-print("   With noon free: first option", fmt(c2[0][0]), c2[0][1], "| morning vs night: first option noon")
+# morning vs night -> what each person said beats the middle: noon ranks below both
+mn = [w for _, w in candidates(open_day, 30, ["morning", "night"])]
+assert set(mn[:2]) == {"morning", "night"} and mn.index("noon") == 2, mn
+# one person said night, the other timed out (habit default morning): night first
+d = [w for _, w in candidates(open_day, 30, ["night", "morning"], said=["night"])]
+assert d[0] == "night", d
+# excluded start times are never offered again
+first = candidates(open_day, 30, ["night"])[0][0]
+assert first not in [t for t, _ in candidates(open_day, 30, ["night"], exclude=[first])]
+print("   With noon free: first option", fmt(c2[0][0]), c2[0][1],
+      "| morning vs night:", mn, "| said night, habit morning:", d[0])
 print("OK: buffer hard rule holds, windows have no gaps, blocked noon falls back the same day")

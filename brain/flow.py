@@ -46,12 +46,21 @@ def hm(t):
 WINDOW_TEXT = ", ".join(f"{k} {hm(a)}-{hm(b)}" for k, (a, b) in WINDOWS.items())
 
 
+TIME_WORDS = {w: c for c, ws in {
+    "morning": ["mornings", "the morning", "in the morning", "am", "early"],
+    "noon": ["afternoon", "afternoons", "the afternoon", "in the afternoon", "midday", "lunch", "lunchtime"],
+    "night": ["nights", "evening", "evenings", "the evening", "in the evening", "tonight", "at night"],
+}.items() for w in ws}
+
+
 def map_answer(kind, question, text):
     """Voice transcript -> one of CHOICES[kind], or None if unclear.
     Returns (choice, how, model_detail)."""
     t = text.strip().lower().strip(".!?")
     if t in CHOICES[kind]:
         return t, "keyword", None
+    if kind == "time_of_day" and t in TIME_WORDS:  # plain one-word answers need no model call
+        return TIME_WORDS[t], "keyword", None
     extra = f" Windows: {WINDOW_TEXT}." if kind == "time_of_day" else \
         " keep = they are happy with the time; change = they want a different time."
     system = (f'A person heard the question "{question}" and answered out loud. '
@@ -135,14 +144,10 @@ class Session:
                               model_errors=parsed["errors"], parsed_plan=plan)
             self.say(f"Plan ({parsed['model']}): {json.dumps(plan)}")
             self.cal = calendar()
-            with ThreadPoolExecutor(2) as ex:
-                infs = list(ex.map(lambda p: infer_prefs(calendar(), p, self.now), self.people))  # one client per thread
-            self.trace["inferred_profiles"] = infs
-            self.profiles = {i["person"]: i["profile"] for i in infs}
-            for i in infs:
-                pr = i["profile"]
-                self.say(f"  {i['person']}'s habits (inferred from own calendar): "
-                         f"{pr['time_of_day_preference']}, confidence {pr['confidence']}")
+            # Habits are read in the background (one Google client per thread)
+            # while people answer; they're only needed for a missing answer.
+            self._pool = ThreadPoolExecutor(2)
+            self._infs = [self._pool.submit(infer_prefs, calendar(), p, self.now) for p in self.people]
             self.start_day = max(date.fromisoformat(plan["start_date"]), self.now.date())
             self.end_day = max(date.fromisoformat(plan["end_date"]), self.start_day)
             if self.start_day == self.end_day:
@@ -160,18 +165,33 @@ class Session:
         except Exception as e:
             self.fail(e)
 
+    @property
+    def profiles(self):
+        if "inferred_profiles" not in self.trace:
+            infs = [f.result() for f in self._infs]
+            self._pool.shutdown(wait=False)
+            self.trace["inferred_profiles"] = infs
+            for i in infs:
+                pr = i["profile"]
+                self.say(f"  {i['person']}'s habits (inferred from own calendar, used only without an "
+                         f"answer): {pr['time_of_day_preference']}, confidence {pr['confidence']}")
+        return {i["person"]: i["profile"] for i in self.trace["inferred_profiles"]}
+
     # ---- answers from either pebble ----------------------------------------
     def answer(self, device_id, text):
         with self.lock:
             p, q = self.by_device.get(device_id), self.questions.get(device_id)
-            if not p:
-                return {"ok": False, "error": f"unknown device {device_id}"}
-            if not q:
-                return {"ok": False, "error": f"no open question for {device_id} (state {self.state})"}
-            try:
-                choice, how, detail = map_answer(q["kind"], q["say"], text)
-            except Exception as e:
-                return {"ok": False, "error": f"couldn't map answer: {e}"}
+        if not p:
+            return {"ok": False, "error": f"unknown device {device_id}"}
+        if not q:
+            return {"ok": False, "error": f"no open question for {device_id} (state {self.state})"}
+        try:  # outside the lock: both pebbles' answers are understood in parallel
+            choice, how, detail = map_answer(q["kind"], q["say"], text)
+        except Exception as e:
+            return {"ok": False, "error": f"couldn't map answer: {e}"}
+        with self.lock:
+            if self.questions.get(device_id) is not q:
+                return {"ok": False, "error": "question closed while the answer was being understood"}
             self.step("answer", person=p["name"], device_id=device_id, question=q["say"],
                       heard=text, mapped_to=choice, how=how, mapping=detail)
             self.say(f'  {p["name"]} said "{text}" -> {choice or "unclear, asking again"}')
@@ -225,7 +245,9 @@ class Session:
                     f"{PEOPLE[k]['name']} {s:%a} {hm(s)}-{hm(e)}" for k, bl in self.extra_busy.items()
                     for s, e in bl) + ")")
             shared = free_slots(busy, start, end, minutes, self.now)
-            cands = candidates(shared, minutes, choices)
+            said = [a["choice"] for a in self.answers.values()
+                    if a.get("choice") and a.get("source") == "voice"] if pick is None else []
+            cands = candidates(shared, minutes, choices, said=said)
             ch = {p["name"]: self.answers.get(p["name"], {}).get("choice") for p in self.people}
             notes = {t: {p["name"]: fallback_note(t, w, ch[p["name"]], ch[o["name"]], shared)
                          for p, o in (self.people, self.people[::-1])} for t, w in cands}
@@ -254,6 +276,8 @@ class Session:
             self.trace["agreement"] = {"how": f"manual override --pick {pick}"}
             return self.book()
         know = {p["name"]: {"answer": self.describe_answer(p["name"]),
+                            "said": (self.answers.get(p["name"], {}).get("choice")
+                                     if self.answers.get(p["name"], {}).get("source") == "voice" else None),
                             "profile": self.profiles[p["name"]], "free": free[p["name"]]}
                 for p in self.people}
         self.say("Agents negotiating:")

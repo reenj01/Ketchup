@@ -4,18 +4,54 @@ Baseten (Muse Spark Open) is the main brain; Meta's Model API is the backup.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
+import threading
 import time
-import urllib.request
+from pathlib import Path
+from urllib.parse import urlsplit
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+from timing import record
 
 TZ = ZoneInfo("America/New_York")
 BASETEN = ("https://inference.baseten.co/v1/chat/completions",
            "meta-models/muse-spark-open-1026", "BASETEN_API_KEY")
 META = ("https://api.meta.ai/v1/chat/completions", "muse-spark-1.3", "META_API_KEY")
+# How hard the model thinks before answering. Both providers document
+# low | medium | high | xhigh (xhigh = default): docs.baseten.co/inference/model-apis/reasoning
+# and dev.meta.ai/docs/muse-spark-open/settings. "low" cut reasoning tokens ~4x in our tests.
+EFFORT = json.loads((Path(__file__).resolve().parent.parent / "config" / "settings.json")
+                    .read_text()).get("reasoning_effort")
+_conns = threading.local()  # one keep-alive HTTPS connection per thread per host
+
+
+def _post(url, body, headers, timeout=90):
+    """POST over a reused HTTPS connection (saves the TLS handshake each call)."""
+    u = urlsplit(url)
+    pool = _conns.__dict__.setdefault("pool", {})
+    for fresh in (False, True):
+        conn = pool.get(u.netloc)
+        if conn is None or fresh:
+            if conn:
+                conn.close()
+            conn = pool[u.netloc] = http.client.HTTPSConnection(u.netloc, timeout=timeout)
+        try:
+            conn.request("POST", u.path, body=body, headers=headers)
+            resp = conn.getresponse()
+            data = resp.read()
+        except (http.client.HTTPException, ConnectionError, OSError):
+            conn.close()
+            pool.pop(u.netloc, None)
+            if fresh:
+                raise
+            continue  # stale keep-alive socket: retry once on a new one
+        if resp.status != 200:
+            raise RuntimeError(f"HTTP {resp.status}: {data[:200].decode(errors='replace')}")
+        return json.loads(data)
 
 SYSTEM = """You are a scheduling agent. Someone said a plan phrase out loud.
 Turn it into a concrete plan. Reply with JSON only, no prose:
@@ -37,13 +73,23 @@ def _call(url, model, key_env, system, user, max_tokens):
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": user}],
         "max_tokens": max_tokens,
+        **({"reasoning_effort": EFFORT} if EFFORT else {}),
     }).encode()
-    req = urllib.request.Request(url, data=body, headers={
-        "Authorization": f"Bearer {os.environ[key_env]}",
-        "Content-Type": "application/json",
-    })
-    with urllib.request.urlopen(req, timeout=90) as resp:
-        choice = json.load(resp)["choices"][0]
+    headers = {"Authorization": f"Bearer {os.environ[key_env]}",
+               "Content-Type": "application/json", "Connection": "keep-alive"}
+    t0 = time.perf_counter()
+    try:
+        data = _post(url, body, headers)
+    except Exception as e:
+        record(kind="model", label=system.split("\n")[0][:60], model=model, ok=False,
+               seconds=round(time.perf_counter() - t0, 2), error=type(e).__name__)
+        raise
+    u = data.get("usage") or {}
+    record(kind="model", label=system.split("\n")[0][:60], model=model, ok=True,
+           seconds=round(time.perf_counter() - t0, 2), prompt_tokens=u.get("prompt_tokens"),
+           completion_tokens=u.get("completion_tokens"),
+           reasoning_tokens=(u.get("completion_tokens_details") or {}).get("reasoning_tokens"))
+    choice = data["choices"][0]
     message = choice["message"]
     if not message.get("content"):
         raise ValueError(f"no answer text (finish_reason={choice.get('finish_reason')}; "
@@ -54,14 +100,14 @@ def _call(url, model, key_env, system, user, max_tokens):
     return json.loads(content), message.get("reasoning_content")
 
 
-def ask_json(system: str, user: str, check=None, max_tokens=12000) -> dict:
+def ask_json(system: str, user: str, check=None, max_tokens=12000, tries=(2, 3)) -> dict:
     """Ask Muse Spark Open for a strict-JSON reply; fall back to Meta's API.
 
     `check(reply)` may raise to reject a malformed reply (it is retried).
     Returns {"reply", "reasoning", "model", "errors"}.
     """
     errors = []
-    for url, model, key_env, tries in (BASETEN + (2,), META + (3,)):
+    for url, model, key_env, tries in (BASETEN + (tries[0],), META + (tries[1],)):
         for attempt in range(tries):
             try:
                 reply, reasoning = _call(url, model, key_env, system, user, max_tokens)

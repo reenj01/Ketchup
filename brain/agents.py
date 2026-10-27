@@ -1,8 +1,8 @@
 """One Muse Spark Open agent per person, and the negotiation between them.
 
 Each agent knows its own person's calendar (busy times, no titles shared),
-what its person answered to "Morning, noon, or night?", habits inferred from
-its own calendar, and the other person's free windows (shared by the other
+what its person answered to "Morning, noon, or night?" (habits inferred from
+its own calendar only when the person gave no answer), and the other person's free windows (shared by the other
 agent: times only, no event details).
 """
 import json
@@ -13,18 +13,14 @@ MAX_ROUNDS = 2
 
 SYSTEM = """You are {name}'s personal scheduling agent inside Ketchup.
 {name} and {other} just agreed to "{activity}". The numbered slots below are
-times when BOTH are free, each already at least 30 minutes away from any
-other event on either calendar, best fit to both answers first. Morning,
-noon and night are soft preferences. "fallback" = nothing worked in the
-window someone asked for that day. "compromise" = their window had time, but
-this slot is the other person's pick or a middle ground. Get a slot that is good for {name} while
-being fair, so the two of you agree quickly.
+times when BOTH are free, each already at least 30 minutes away from any other
+event on either calendar, best first. "fallback" = nothing worked that day in
+the window someone asked for.
 
-- {name} was asked "Morning, noon, or night?" and said: {my_answer}
-- {other} said: {their_answer}
-- {name}'s habits, inferred from {name}'s own calendar (weaker than what they said):
-{profile}
-- {other}'s free time in this date range, shared by {other}'s agent (times only):
+What they answered to "Morning, noon, or night?":
+- {name}: {my_answer}
+- {other}: {their_answer}
+{habits}{other}'s free time, shared by {other}'s agent (times only):
 {their_free}
 
 Reply with strict JSON only, no prose, no code fences:
@@ -32,19 +28,24 @@ Reply with strict JSON only, no prose, no code fences:
   "decision": "propose" | "accept" | "counter",
   "pick": slot number you want,
   "reason": "one short sentence, friendly, under 20 words"}}
-Rules:
-- What each person said matters most. If both said the same part of the day,
-  stay in it. If they differ, find a fair middle (noon sits between morning
-  and night) or a choice that honors both as well as possible.
-- An answer marked "no answer: default from calendar habits" was NOT said by
-  the person; never claim they asked for it, and weigh it below a spoken answer.
-- If you pick a fallback slot, say so plainly in your reason, e.g.
-  "Nothing worked at noon, so how about <time>?" Use the real slot time.
-  Never call a compromise a fallback.
-- Use inferred habits only to break ties, weighted by their confidence.
+Rules, most important first:
+- What a person said in this chat is the top priority. It always beats
+  calendar habits and any "middle ground". Never pick a window nobody said
+  while a slot in a window someone said is listed.
+- Going first: propose a slot in {name}'s window. If both said the same
+  window, stay in it. If they said different windows, settle on a slot in one
+  of the two windows they said, taking turns fairly.
+- Never propose a slot that was already offered (listed in the message).
+  Accept it, or counter with a slot nobody offered yet.
+- An answer marked "no answer" was NOT said; never claim they asked for it.
+- If you pick a fallback slot, say so plainly, e.g. "Nothing worked at noon,
+  so how about <time>?" Use the real slot time.
 - "propose" only when you go first. Otherwise "accept" (pick = the other
-  agent's pick) or "counter" (pick = a different slot).
-- Accept if the other pick is fair for {name}, even if not the very best."""
+  agent's pick) or "counter" (pick = a new slot). Settle quickly: in the last
+  round, accept any fair slot in a window someone said."""
+
+HABITS = ("{name} gave no answer, so use {name}'s habits, inferred by Ketchup from "
+          "{name}'s own calendar: {habit}\n")
 
 
 def fmt(t):
@@ -77,6 +78,7 @@ def calendar_context(busy, slots, minutes, notes=None):
 
 
 def _checker(n, first, offered):
+    """Shape of one reply (retried by ask_json when wrong)."""
     def check(r):
         if sorted(r.get("ranking", [])) != list(range(1, n + 1)):
             raise ValueError(f"ranking must list 1..{n} once: {r.get('ranking')}")
@@ -94,62 +96,118 @@ def _checker(n, first, offered):
     return check
 
 
-def agent_turn(me, other, activity, know, context, round_no, last=None, n=3, context_note=""):
-    """One agent move. `know[name]` = {"answer", "profile", "free"}; `last` is the
-    other agent's latest {pick, reason} or None."""
+def allowed_picks(slots, seen, mine, theirs, first):
+    """Slot numbers a new proposal / counter may use, enforced in code:
+    never one already offered; going first, {name}'s own said window when
+    possible; otherwise a window someone said when possible."""
+    fresh = [i for i in range(1, len(slots) + 1) if i not in seen]
+    for wins in ([mine] if first and mine else [], [w for w in (mine, theirs) if w]):
+        ok = [i for i in fresh if slots[i - 1][1] in wins]
+        if ok:
+            return ok
+    return fresh
+
+
+def problem(r, allowed):
+    """Why a reply breaks the code rules, or None."""
+    if r["decision"] == "accept" or r["pick"] in allowed:
+        return None
+    return (f"Slot {r['pick']} is not allowed: it was already offered or is in a window "
+            f"nobody said. Allowed slots: {allowed}. Pick one of those, or accept.")
+
+
+def agent_turn(me, other, activity, know, context, round_no, last=None, n=3, context_note="",
+               slots=None, seen=(), offered_by=None):
+    """One agent move. `know[name]` = {"answer", "said", "profile", "free"}
+    ("said" = the window they explicitly chose, None if they gave no answer);
+    `last` is the other agent's latest {pick, reason} or None; `seen` = slot
+    numbers already offered by either agent."""
+    mine, theirs = know[me["name"]].get("said"), know[other["name"]].get("said")
+    habits = ""
+    if not mine:  # habits only matter when the person gave no answer
+        pr = know[me["name"]]["profile"] or {}
+        habits = HABITS.format(name=me["name"], habit=json.dumps(
+            {k: pr.get(k) for k in ("time_of_day_preference", "preferred_hours", "confidence")}))
     system = SYSTEM.format(
         name=me["name"], other=other["name"], activity=activity,
         my_answer=know[me["name"]]["answer"], their_answer=know[other["name"]]["answer"],
-        profile=json.dumps(know[me["name"]]["profile"], indent=2),
-        their_free=fmt_windows(know[other["name"]]["free"]))
+        habits=habits, their_free=fmt_windows(know[other["name"]]["free"]))
     user = f"{me['name']}'s own calendar:\n{context}\n\n" + (f"{context_note}\n\n" if context_note else "")
+    if seen:
+        user += ("Already offered (never propose these again): " + ", ".join(
+            f"slot {i} by {(offered_by or {}).get(i, 'an agent')}" for i in sorted(seen)) + "\n")
+    user += f"Round {round_no} of {MAX_ROUNDS}. "
     if last is None:
         user += "You go first. Propose the slot you want."
         summary = f"{me['name']}'s agent proposes first from {n} shared slots"
     else:
         user += (f"{other['name']}'s agent wants slot {last['pick']}: \"{last['reason']}\"\n"
-                 "Accept it or counter with a different slot.")
+                 "Accept it or counter with a slot nobody offered yet.")
         summary = (f"{me['name']}'s agent answers {other['name']}'s pick of slot "
                    f"{last['pick']} (round {round_no})")
-    out = ask_json(system, user, check=_checker(n, last is None, last and last["pick"]))
-    return {"round": round_no, "agent": me["name"], "prompt_summary": summary,
-            "prompt": {"system": system, "user": user},
+    allowed = allowed_picks(slots, seen, mine, theirs, last is None) if slots else list(range(1, n + 1))
+    check = _checker(n, last is None, last and last["pick"])
+    out = ask_json(system, user, check=check)
+    turn = {"round": round_no, "agent": me["name"], "prompt_summary": summary,
+            "prompt": {"system": system, "user": user}, "allowed_picks": allowed,
             "model": out["model"], "model_errors": out["errors"],
             "reasoning_content": out["reasoning"], "reply": out["reply"]}
+    why = problem(out["reply"], allowed)
+    if why:  # one retry that says what was wrong, then code moves the pick
+        turn["rejected_reply"], turn["rejected_because"] = out["reply"], why
+        out = ask_json(system, user + "\n\n" + why, check=check)
+        turn.update(model=out["model"], reasoning_content=out["reasoning"], reply=out["reply"])
+        turn["model_errors"] += out["errors"]
+        if problem(out["reply"], allowed):
+            r = dict(out["reply"])
+            nxt = next((i for i in r["ranking"] if i in allowed), allowed[0] if allowed else None)
+            if nxt is None and last:  # nothing new left: take the other's pick
+                r.update(decision="accept", pick=last["pick"])
+            else:
+                r.update(pick=nxt, reason="")
+            turn["reply"], turn["moved_by_code"] = r, why
+    return turn
 
 
 def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=print, notes=None,
               on_turn=None, context_note="", before_turn=None):
     """Proposer's agent picks first, the other accepts or counters, up to
-    MAX_ROUNDS rounds; then the best combined rank wins.
-    `slots` = [(start, window)]. Returns {"agreed_index", "how", "turns", "ranked"}
-    where `ranked` lists every slot index, agreed first, then next-best."""
+    MAX_ROUNDS rounds; then the best combined rank wins. No slot is ever
+    offered twice (checked in code, see allowed_picks).
+    `slots` = [(start, window)]. Returns {"agreed_index", "how", "turns",
+    "ranked", "offered"} where `ranked` lists every slot index, agreed first,
+    then next-best, and `offered` = indexes either agent proposed."""
     n = len(slots)
     if n == 1:
         log("  Only one shared slot, nothing to negotiate.")
         if on_turn:
             on_turn(None, {"decision": "only", "pick": 1, "reason": "Only one shared slot, nothing to negotiate."}, slots[0])
-        return {"agreed_index": 0, "how": "only one shared slot", "turns": [], "ranked": [0]}
+        return {"agreed_index": 0, "how": "only one shared slot", "turns": [], "ranked": [0], "offered": [0]}
     ctx = {p["name"]: calendar_context(busy_by_cal[p["calendar_id"]], slots, minutes, notes)
            for p in (proposer, other)}
     turns, rankings, last, agreed, how = [], {}, None, None, None
+    seen, by = [], {}
     order = [proposer, other]
     for round_no in range(1, MAX_ROUNDS + 1):
         for i, me in enumerate(order):
             if before_turn:
                 before_turn(me)
-            t = agent_turn(me, order[1 - i], activity, know, ctx[me["name"]], round_no, last, n, context_note)
+            t = agent_turn(me, order[1 - i], activity, know, ctx[me["name"]], round_no, last, n,
+                           context_note, slots=slots, seen=seen, offered_by=by)
             turns.append(t)
             r = t["reply"]
             rankings[me["name"]] = r["ranking"]
             log(f"  [round {round_no}] {me['name']}'s agent {r['decision']}s slot {r['pick']} "
-                f"({fmt(slots[r['pick'] - 1][0])}, {slots[r['pick'] - 1][1]}): {r['reason']}")
+                f"({fmt(slots[r['pick'] - 1][0])}, {slots[r['pick'] - 1][1]}): {r['reason']}"
+                + (" [moved by code: repeat/window rule]" if t.get("moved_by_code") else ""))
             if on_turn:
                 on_turn(me, r, slots[r["pick"] - 1])
             if r["decision"] == "accept":
                 agreed, how = r["pick"], f"agreed in round {round_no}"
                 break
-            last = {"pick": r["pick"], "reason": r["reason"]}
+            seen.append(r["pick"])
+            by[r["pick"]] = f"{me['name']}'s agent"
+            last = {"pick": r["pick"], "reason": r["reason"] or f"slot {r['pick']}"}
         if agreed:
             break
     # Combined rank: lowest summed position; ties go to the proposer's order.
@@ -160,7 +218,7 @@ def negotiate(proposer, other, activity, slots, busy_by_cal, minutes, know, log=
         log(f"  No agreement after {MAX_ROUNDS} rounds; best combined rank is slot {agreed}.")
     ranked = [agreed - 1] + [s - 1 for s in by_score if s != agreed]
     return {"agreed_index": agreed - 1, "how": how, "turns": turns, "ranked": ranked,
-            "combined_rank": score}
+            "combined_rank": score, "offered": sorted({s - 1 for s in seen} | {agreed - 1})}
 
 
 LENGTH_SYSTEM = """You are {name}'s personal scheduling agent inside Ketchup.

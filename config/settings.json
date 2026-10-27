@@ -1,12 +1,25 @@
 {
   "buffer_min": 30,
-  "day": ["08:00", "21:00"],
+  "day": [
+    "08:00",
+    "21:00"
+  ],
   "windows": {
-    "morning": ["08:00", "11:59"],
-    "noon": ["12:00", "16:59"],
-    "night": ["17:00", "21:00"]
+    "morning": [
+      "08:00",
+      "11:59"
+    ],
+    "noon": [
+      "12:00",
+      "16:59"
+    ],
+    "night": [
+      "17:00",
+      "21:00"
+    ]
   },
   "answer_timeout_s": 30,
   "max_change_rounds": 2,
-  "max_candidates": 6
+  "max_candidates": 6,
+  "reasoning_effort": "low"
 }

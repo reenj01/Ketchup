@@ -36,17 +36,27 @@ from flow import TRACES, hm, map_answer
 from gcal import PEOPLE, calendar
 from infer_prefs import infer_prefs
 from parse_plan import TZ, ask_json, parse_plan
+from timing import CALLS, summary
 
 Q_TIME = "What time of day do you prefer to meet?"
 Q_LEN = "How long do you prefer to meet?"
+HABITS_LABEL = "reading calendar habits…"
 WINDOW_TEXT = ", ".join(f"{k} {hm(a)}-{hm(b)}" for k, (a, b) in WINDOWS.items())
 
 
 def map_minutes(text):
     """Free text -> meeting length in minutes (15-240), or None if unclear."""
-    t = text.strip().lower()
+    t = text.strip().lower().strip(".!?")
     if re.fullmatch(r"\d{1,3}", t):
         return int(t), "keyword", None
+    m = re.fullmatch(r"(\d{1,3})\s*(m|min|mins|minutes?)", t)
+    if m and 15 <= int(m[1]) <= 240:
+        return int(m[1]), "keyword", None
+    m = re.fullmatch(r"(an?|1|one|2|two)\s*(h|hr|hrs|hours?)", t)
+    if m:
+        return (120 if m[1] in ("2", "two") else 60), "keyword", None
+    if t in ("half an hour", "half hour", "30m"):
+        return 30, "keyword", None
     system = ('A person was asked "How long do you prefer to meet?" and answered. '
               "Turn it into a meeting length in whole minutes between 15 and 240 "
               '("an hour" = 60, "half an hour" = 30, "quick" = 30). If it is not clear, use null. '
@@ -62,8 +72,8 @@ def map_minutes(text):
 
 def map_yes_no(question, text):
     t = text.strip().lower().strip(".!?")
-    if t in ("yes", "no"):
-        return t, "keyword", None
+    if t in ("yes", "no", "yeah", "yep", "nope", "no thanks"):
+        return ("yes" if t.startswith("y") else "no"), "keyword", None
     system = (f'A person was asked "{question}" and answered. yes = they want a different '
               "day or time; no = they are happy with it. Map the answer to \"yes\", \"no\" "
               'or "unclear". Reply with strict JSON only: {"answer": "..."}')
@@ -87,12 +97,14 @@ class WebSession:
         self.messages, self.thinking, self.state = [], {}, "starting"
         self.open_q = {}                 # person key -> "time" | "length" | "change"
         self.answers = {k: {} for k in self.keys}
-        self.booked, self.rejected, self.change_round = [], [], 0
+        self.booked, self.rejected, self.offered, self.change_round = [], [], set(), 0
+        self.mapping = set()             # person keys whose answer is being understood
         self.slot = None
         self.trace = {"started_at": self.now.isoformat(), "source": "web", "session_id": sid,
                       "input_phrase": phrase, "dry_run": dry_run, "settings": SETTINGS,
                       "steps": [], "agent_turns": [], "messages": self.messages}
         self.path = TRACES / f"{self.now:%Y-%m-%dT%H-%M-%S}-web-{sid}.json"
+        self.calls_from = len(CALLS)
         self.jobs = queue.Queue()
         self.jobs.put(("start",))
         threading.Thread(target=self._worker, daemon=True).start()
@@ -107,8 +119,10 @@ class WebSession:
             except Exception as e:  # show it in the page instead of dying silently
                 self.post("middle", "system", f"Something went wrong: {type(e).__name__}: {e}")
                 self.set_state("failed")
-            finally:
-                self.thinking.clear()
+            finally:  # keep only indicators for work still running on other threads
+                for ch in list(self.thinking):
+                    if ch not in self.mapping and self.thinking[ch] != HABITS_LABEL:
+                        self.thinking.pop(ch, None)
             if self.state in ("done", "failed"):
                 self.save()
                 return
@@ -133,8 +147,12 @@ class WebSession:
         self.state = self.trace["state"] = s
         self.step("state", to=s)
 
+    def calls(self):
+        return [c for c in CALLS[self.calls_from:] if c.get("sid", self.sid) == self.sid]
+
     def save(self):
         TRACES.mkdir(exist_ok=True)
+        self.trace["timing"] = {"summary": summary(self.calls()), "calls": self.calls()}
         with self.lock:
             text = json.dumps(self.trace, indent=2, ensure_ascii=False, default=str)
         self.path.write_text(text + "\n")
@@ -152,20 +170,38 @@ class WebSession:
                     "messages": self.messages[since:], "thinking": dict(self.thinking),
                     "waiting_for": {k: q for k, q in self.open_q.items()},
                     "slot": self.slot and fmt(self.slot[0]), "change_round": self.change_round,
-                    "trace_file": str(self.path.relative_to(TRACES.parent))}
+                    "trace_file": str(self.path.relative_to(TRACES.parent)),
+                    "timing": summary(self.calls())}
 
     # ---- called from HTTP threads -------------------------------------------
     def answer(self, key, text):
         if key not in self.keys:
             return {"ok": False, "error": f"unknown person {key}"}
-        if not self.open_q.get(key):
+        q = self.open_q.get(key)
+        if not q or key in self.mapping:
             return {"ok": False, "error": f"{self.name(key)}'s agent isn't asking anything right now"}
         text = text.strip()
         if not text:
             return {"ok": False, "error": "empty answer"}
         self.post(key, "user", text)
-        self.jobs.put(("handle_answer", key, text))
+        self.mapping.add(key)
+        self.think(key, "understanding…")
+        # Understanding an answer is model-only (no Google client), so each
+        # person's answer is mapped on its own thread, in parallel.
+        threading.Thread(target=self._map, args=(key, q, text), daemon=True).start()
         return {"ok": True}
+
+    def _map(self, key, q, text):
+        try:
+            if q == "time":
+                res = map_answer("time_of_day", Q_TIME, text)
+            elif q == "length":
+                res = map_minutes(text)
+            else:
+                res = map_yes_no("Do you want a different day or time?", text)
+        except Exception as e:  # noqa: BLE001 - surfaced on the worker
+            res = e
+        self.jobs.put(("handle_answer", key, text, q, res))
 
     # ---- the flow (worker thread only) --------------------------------------
     def _start(self):
@@ -177,33 +213,52 @@ class WebSession:
         parsed = parse_plan(self.phrase, self.now)
         self.plan = parsed["plan"]
         self.trace.update(model=parsed["model"], parsed_plan=self.plan)
-        with ThreadPoolExecutor(2) as ex:
-            infs = list(ex.map(lambda p: infer_prefs(calendar(), p, self.now), self.people))
-        self.trace["inferred_profiles"] = infs
-        self.profiles = {i["person"]: i["profile"] for i in infs}
+        # Each agent reads its person's calendar habits in the background
+        # (own Google client per thread) while people answer the questions.
+        self._pool, self._inferred = ThreadPoolExecutor(2), 0
+        self._infs = [self._pool.submit(self._infer, p) for p in self.people]
         self.start_day = max(date.fromisoformat(self.plan["start_date"]), self.now.date())
         self.end_day = max(date.fromisoformat(self.plan["end_date"]), self.start_day)
         when = (f"on {self.start_day:%A}" if self.start_day == self.end_day
                 else f"between {self.start_day:%a %b %-d} and {self.end_day:%a %b %-d}")
         self.thinking.clear()
         self.post("middle", "system", f"Plan from Muse Spark Open: {self.plan['activity']} {when}.")
-        for i in infs:
-            pr = i["profile"]
-            self.post("middle", "system", f"{i['person']}'s agent read {i['person']}'s calendar: "
-                      f"usually {pr['time_of_day_preference']} ({pr['confidence']} confidence).")
+        self.think("middle", HABITS_LABEL)
         self.set_state("asking")
         for k in self.keys:
             self.post(k, "agent", f"Hi {self.name(k)}! You and {self.name(self.other(k))} want to "
                       f"{self.plan['activity']} {when}. {Q_TIME} (morning, noon, or night)")
             self.open_q[k] = "time"
 
-    def _handle_answer(self, key, text):
-        q = self.open_q.get(key)
-        if not q:
+    def _infer(self, person):
+        i = infer_prefs(calendar(), person, self.now)
+        pr = i["profile"]
+        self.post("middle", "system", f"{i['person']}'s agent read {i['person']}'s calendar: usually "
+                  f"{pr['time_of_day_preference']} ({pr['confidence']} confidence). Used only if "
+                  f"{i['person']} gives no answer; what {i['person']} says comes first.")
+        with self.lock:
+            self._inferred += 1
+            if self._inferred == len(self.people) and self.thinking.get("middle") == HABITS_LABEL:
+                self.thinking.pop("middle")
+        return i
+
+    def profiles_ready(self):
+        if not hasattr(self, "profiles"):
+            infs = [f.result() for f in self._infs]
+            self._pool.shutdown(wait=False)
+            self.trace["inferred_profiles"] = infs
+            self.profiles = {i["person"]: i["profile"] for i in infs}
+        return self.profiles
+
+    def _handle_answer(self, key, text, q, res):
+        self.mapping.discard(key)
+        self.done_thinking(key)
+        if isinstance(res, Exception):
+            raise res
+        if self.open_q.get(key) != q:  # question was withdrawn meanwhile
             return
-        self.think(key, "understanding…")
         if q == "time":
-            choice, how, detail = map_answer("time_of_day", Q_TIME, text)
+            choice, how, detail = res
             self.step("answer", person=self.name(key), question=Q_TIME, heard=text, mapped_to=choice,
                       how=how, mapping=detail)
             self.done_thinking(key)
@@ -214,7 +269,7 @@ class WebSession:
             self.post(key, "agent", f"Got it: {choice} ({hm(a)}-{hm(b)}). {Q_LEN}", mapped=choice)
             self.open_q[key] = "length"
         elif q == "length":
-            minutes, how, detail = map_minutes(text)
+            minutes, how, detail = res
             self.step("answer", person=self.name(key), question=Q_LEN, heard=text, mapped_to=minutes,
                       how=how, mapping=detail)
             self.done_thinking(key)
@@ -230,7 +285,7 @@ class WebSession:
                 self._negotiate()
         elif q == "change":
             ask = "Do you want a different day or time?"
-            choice, how, detail = map_yes_no(ask, text)
+            choice, how, detail = res
             self.step("answer", person=self.name(key), question=ask, heard=text, mapped_to=choice,
                       how=how, mapping=detail)
             self.done_thinking(key)
@@ -279,7 +334,9 @@ class WebSession:
             gone = {(t.date(), w) for t, w in self.rejected}
             shared = [t for t in free_slots(busy, start, end, self.minutes, self.now)
                       if (t.date(), window_of(t)) not in gone]
-            cands = candidates(shared, self.minutes, choices)
+            # times the agents already offered in an earlier round are not offered again
+            cands = (candidates(shared, self.minutes, choices, said=choices, exclude=self.offered)
+                     or candidates(shared, self.minutes, choices, said=choices))
             if cands:
                 break
             self.post("middle", "system", f"Nothing fits {start:%a %b %-d}-{end:%a %b %-d}; looking at next week.")
@@ -310,8 +367,10 @@ class WebSession:
         self.post("middle", "system", "Times both are free for, best fit first:\n" + "\n".join(
             f"{i}. {fmt(t)} [{w}]" + (f" ({label[t]})" if t in label else "")
             for i, (t, w) in enumerate(cands, 1)), kind="options")
+        profiles = self.profiles_ready()
         know = {p["name"]: {"answer": f"{self.answers[k]['time']} (typed by {p['name']})",
-                            "profile": self.profiles[p["name"]], "free": free[p["name"]]}
+                            "said": self.answers[k]["time"],
+                            "profile": profiles[p["name"]], "free": free[p["name"]]}
                 for k, p in zip(self.keys, self.people)}
 
         def on_turn(me, r, slot):
@@ -319,8 +378,8 @@ class WebSession:
             if me is None:
                 return self.post("middle", "system", f"Only one time fits: {fmt(t)}.")
             verb = {"propose": "How about", "accept": "Deal:", "counter": "What about"}[r["decision"]]
-            self.post("middle", self.key_of(me), f"{verb} {fmt(t)} [{w}]? {r['reason']}"
-                      if r["decision"] != "accept" else f"{verb} {fmt(t)}. {r['reason']}",
+            self.post("middle", self.key_of(me), (f"{verb} {fmt(t)} [{w}]? {r['reason']}"
+                      if r["decision"] != "accept" else f"{verb} {fmt(t)}. {r['reason']}").strip(),
                       decision=r["decision"])
         res = negotiate(mayo, frankie, self.plan["activity"], cands, busy, self.minutes, know,
                         log=lambda *_: None, notes=label, on_turn=on_turn,
@@ -329,6 +388,7 @@ class WebSession:
         self.done_thinking("middle")
         self.trace["agent_turns"] += res.pop("turns")
         self.trace.setdefault("agreements", []).append(res)
+        self.offered |= {cands[i][0] for i in res["offered"]}
         if res["how"] == "best combined rank":
             self.post("middle", "system", "No deal after 2 rounds, so the best combined rank wins.")
         self.slot = cands[res["agreed_index"]]
@@ -382,9 +442,10 @@ class WebSession:
         self._unbook()
         self.post("middle", "system", f"{self.name(key)} wants a different day or time "
                   f"(change {self.change_round} of {SETTINGS['max_change_rounds']}). "
-                  "Not offering again: " + ", ".join(f"{t:%a %b %-d} {w}" for t, w in self.rejected) + ".")
+                  "Not offering again: " + ", ".join(f"{t:%a %b %-d %-I:%M %p}" for t in sorted(self.offered)) + ".")
         self._negotiate(note=f"{self.name(key)} asked for a different day or time than "
-                             ", ".join(f"{fmt(t)} ({t:%A} {w})" for t, w in self.rejected) + "; those windows are no longer offered.")
+                             ", ".join(f"{fmt(t)} ({t:%A} {w})" for t, w in self.rejected) + "; those windows, and "
+                             "every time offered in an earlier round, are no longer offered.")
 
     def _finish(self):
         self.open_q.clear()

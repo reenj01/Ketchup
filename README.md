@@ -38,7 +38,9 @@ Everything is asked and answered by voice.
    next-best options for "change"). If nothing there works for both, slots
    in the other windows the same day are offered instead, nearest first, and everyone
    is told plainly ("Nothing worked at noon on Thursday, so how about Thu Oct 29 at
-   10:00 AM?"). Different answers (morning vs night): noon, the middle, ranks first.
+   10:00 AM?"). **What a person says always beats their habits.** Different answers
+   (morning vs night): slots in the two said windows rank first, never a middle window
+   nobody asked for.
    Next week only if nothing works in any window on the plan's dates.
 5. **Want to change it?** Both pebbles ask "How about Thu Oct 29 at 12:30 PM? Want to
    change it?" (each pebble says why if it's a fallback or a middle ground for its person).
@@ -52,8 +54,9 @@ there's an event at 8 PM. Check it, along with the windows and the noon-blocked
 fallback: `.venv/bin/python tests/test_slots.py`
 
 Voice answers are mapped by Muse Spark Open, so "ugh, mornings are rough, evening
-please" becomes `night` and "can we do a different time?" becomes `change`. A plain
-keyword (`morning`, `noon`, `night`, `keep`, `change`) is accepted as is, for testing.
+please" becomes `night` and "can we do a different time?" becomes `change`. Plain
+answers skip the model to save time: `mornings`, `evening`, `tonight`, `lunch`,
+`30 min`, `an hour`, `yes`, `no` and similar map instantly with a keyword table.
 If the answer is unclear, the question stays open.
 
 ## Run it from the command line
@@ -92,8 +95,8 @@ Both pebbles say: "Nothing worked at noon on Thursday, so how about Thu Oct 29 a
 ### The agents
 
 - One Muse Spark Open agent per person (`brain/agents.py`). Each knows what its person
-  said, that person's inferred habits, their own calendar, and the other person's free
-  windows only.
+  said, their own calendar, and the other person's free windows only. The inferred habits
+  are added to the prompt only when that person gave no answer.
 - Habits are inferred, never typed: `brain/infer_prefs.py` gives Muse Spark Open the facts
   of that person's own calendar (timed events from 4 weeks back to 2 weeks ahead), and
   the model infers morning/afternoon/evening or no clear pattern, with confidence and
@@ -102,6 +105,24 @@ Both pebbles say: "Nothing worked at noon on Thursday, so how about Thu Oct 29 a
 - The person who said the phrase goes first and proposes a slot with a one-line reason.
   The other agent accepts or counters. Up to 2 rounds. If they still disagree, the slot with
   the best combined rank wins.
+- Rules checked in code, not just asked for in the prompt: a slot already offered (in this
+  negotiation or an earlier change round) is never offered again; going first, the agent
+  proposes in its own person's said window; a counter stays in a window someone said. A
+  reply that breaks a rule is sent back once with the reason, then moved by code to that
+  agent's next allowed slot (or turned into an accept if nothing new is left). Check:
+  `.venv/bin/python tests/test_agent_rules.py`. Replay an old negotiation with today's
+  rules: `.venv/bin/python scripts/replay_negotiation.py traces/<file>.json`.
+
+### Speed
+
+`reasoning_effort` in `config/settings.json` is `low` (Muse Spark Open supports `low`,
+`medium`, `high`, `xhigh`; `xhigh` is the default and reasoning can't be turned off). On
+the same slot-pick prompt, Baseten took 2.6 s at the default and 0.9 s at `low`. Plus: plain
+answers map by keyword, both people's answers are mapped in parallel, habits are inferred
+in the background while the questions are asked (and cached until the calendar changes),
+and model calls reuse one HTTPS connection. A whole web session (two answers each, one
+change) went from about 126 s to about 27 s. Every trace has a `timing` block
+(per call: label, seconds, tokens).
 - Agents reply in strict JSON (`ranking`, `decision`, `pick`, `reason`). Malformed replies
   are retried, then fall back to Meta's `muse-spark-1.3`.
 
@@ -161,7 +182,7 @@ Stop it with Ctrl+C. Use `--port 9000` if 8000 is taken. The macOS built-in `pyt
 3. It books right away (unless dry run), and each agent says "Frankie and you are free on
    <day> at <time>. I've booked it in your calendar. Do you want a different day or time?"
 4. If anyone says yes, the events are deleted and the agents renegotiate without that day's
-   window. Up to `max_change_rounds` (2) changes. When both say no: "Plan booked with <other>."
+   window and without any time offered in an earlier round. Up to `max_change_rounds` (2) changes. When both say no: "Plan booked with <other>."
 
 This book-then-ask order applies only to the page. The pebble/CLI flow (`flow.py`) still
 books only after both keep it. API: `POST /api/start`, `GET /api/session/<id>?since=n`,
@@ -189,7 +210,7 @@ The pebbles talk to a small standard-library server.
 
 ## Files
 
-- `config/settings.json`: the day (8 AM–9 PM), time windows, the 30 min buffer, answer timeout, max change rounds.
+- `config/settings.json`: the day (8 AM–9 PM), time windows, the 30 min buffer, answer timeout, max change rounds, `reasoning_effort`.
 - `config/people.json`: each person's name, calendar and pebble device id.
 - `brain/parse_plan.py`: Muse Spark Open turns the phrase into a plan (activity, date window, 30 min default). Falls back to Meta's `muse-spark-1.3`.
 - `brain/calendar_slots.py`: free/busy, the 30 min buffer rule, each person's free windows, one candidate per day and window ranked by fit to the answers, fallback notes.
@@ -200,5 +221,8 @@ The pebbles talk to a small standard-library server.
 - `brain/web_flow.py`: the web page's session (three chats, length negotiation, book-then-ask, change rounds).
 - `web/server.py`, `web/index.html`: the web page (standard library server, one HTML file). `.env.example` lists the keys it reads.
 - `scripts/web_drive.py`: drives a full web session over HTTP (optionally with screenshots).
-- `tests/test_slots.py`: checks the 30 min rule, the windows, and the same-day fallback when noon is blocked.
+- `brain/timing.py`: records the time and tokens of every model and Google call.
+- `scripts/replay_negotiation.py`: re-runs a traced negotiation with the current agents (nothing booked).
+- `tests/test_slots.py`: checks the 30 min rule, the windows, the same-day fallback when noon is blocked, and that said windows rank before habits.
+- `tests/test_agent_rules.py`: checks the code rules (no repeats, said windows first).
 - `traces/`: one JSON per run with every step: the plan, free/busy, inferred profiles (input facts, model reasoning, JSON), each answer and how it was mapped, shared free windows, every agent turn, each keep/change, and the created events.

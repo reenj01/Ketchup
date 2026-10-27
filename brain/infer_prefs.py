@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 from gcal import PEOPLE, calendar
 from parse_plan import TZ, ask_json
+from timing import timed
 
 PAST, FUTURE = timedelta(weeks=4), timedelta(weeks=2)
 
@@ -34,9 +35,10 @@ How to read it:
 
 def calendar_facts(cal, calendar_id, now):
     """Compact factual summary of the person's timed events."""
-    items = cal.events().list(calendarId=calendar_id, timeMin=(now - PAST).isoformat(),
-                              timeMax=(now + FUTURE).isoformat(), singleEvents=True,
-                              orderBy="startTime", maxResults=250).execute().get("items", [])
+    with timed("google", "events.list"):
+        items = cal.events().list(calendarId=calendar_id, timeMin=(now - PAST).isoformat(),
+                                  timeMax=(now + FUTURE).isoformat(), singleEvents=True,
+                                  orderBy="startTime", maxResults=250).execute().get("items", [])
     events = []
     for e in items:
         if "dateTime" not in e.get("start", {}):  # skip all-day events
@@ -66,10 +68,17 @@ def infer_prefs(cal, person, now=None):
     """Returns {"person", "input_summary", "model", "model_errors", "reasoning_content", "profile"}."""
     now = now or datetime.now(TZ)
     facts = calendar_facts(cal, person["calendar_id"], now)
+    key = (person["calendar_id"], f"{now:%Y-%m-%d}", facts)
+    if key in _cache:  # same calendar content today -> same inference, no model call
+        return {**_cache[key], "cached": True}
     out = ask_json(SYSTEM, f"Today is {now:%A %Y-%m-%d}.\n{facts}", check=_check)
-    return {"person": person["name"], "input_summary": facts, "model": out["model"],
-            "model_errors": out["errors"], "reasoning_content": out["reasoning"],
-            "profile": out["reply"]}
+    _cache[key] = r = {"person": person["name"], "input_summary": facts, "model": out["model"],
+                       "model_errors": out["errors"], "reasoning_content": out["reasoning"],
+                       "profile": out["reply"]}
+    return r
+
+
+_cache = {}  # (calendar id, day, calendar facts) -> inference; a new event changes the facts
 
 
 if __name__ == "__main__":

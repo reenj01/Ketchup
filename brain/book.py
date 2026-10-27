@@ -5,6 +5,8 @@ same event is inserted into each person's calendar directly.
 """
 from datetime import datetime, timedelta
 
+from timing import timed
+
 
 def book(cal, people, start: datetime, minutes: int, activity: str):
     names = " + ".join(p["name"] for p in people)
@@ -18,7 +20,8 @@ def book(cal, people, start: datetime, minutes: int, activity: str):
     }
     created = []
     for p in people:
-        ev = cal.events().insert(calendarId=p["calendar_id"], body=event).execute()
+        with timed("google", "events.insert"):
+            ev = cal.events().insert(calendarId=p["calendar_id"], body=event).execute()
         created.append({"person": p["name"], "calendar_id": p["calendar_id"],
                         "event_id": ev["id"], "link": ev.get("htmlLink")})
     return created

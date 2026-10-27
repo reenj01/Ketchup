@@ -13,6 +13,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from parse_plan import TZ
+from timing import timed
 
 SETTINGS = json.loads((Path(__file__).parent.parent / "config/settings.json").read_text())
 BUFFER = timedelta(minutes=SETTINGS["buffer_min"])
@@ -29,11 +30,12 @@ def at(day: date, t: time) -> datetime:
 
 def freebusy(cal, calendar_ids, start, end):
     """Returns {calendar_id: [(busy_start, busy_end), ...]} in ET."""
-    resp = cal.freebusy().query(body={
-        "timeMin": start.isoformat(), "timeMax": end.isoformat(),
-        "timeZone": "America/New_York",
-        "items": [{"id": c} for c in calendar_ids],
-    }).execute()
+    with timed("google", "freebusy"):
+        resp = cal.freebusy().query(body={
+            "timeMin": start.isoformat(), "timeMax": end.isoformat(),
+            "timeZone": "America/New_York",
+            "items": [{"id": c} for c in calendar_ids],
+        }).execute()
     out = {}
     for cid, data in resp["calendars"].items():
         if data.get("errors"):
@@ -104,12 +106,24 @@ def _span(day, names):
     return at(day, WINDOWS[names[0]][0]), at(day, WINDOWS[names[-1]][1])
 
 
-def candidates(slots, minutes, choices=()):
+def asked_score(window, said):
+    """How many people explicitly asked for this window (higher = better).
+    `said` holds only answers people actually gave, never habit defaults."""
+    return sum(window == c for c in said)
+
+
+def candidates(slots, minutes, choices=(), said=None, exclude=()):
     """Soft preferences. Every shared slot is eligible; one per (day, window):
     in a wanted window, the slot nearest its middle; in any other window
-    (a fallback), the slot nearest the wanted windows. Ranked by fit to each
-    person's answer, then day, then nearness. Returns [(start, window)], best first."""
+    (a fallback), the slot nearest the wanted windows.
+    Ranked by: how many people explicitly asked for that window (what someone
+    said always beats a middle ground or a habit), then fit to all answers,
+    then day, then nearness. `said` = explicit answers only (default: all of
+    `choices`); `exclude` = start times never to offer again.
+    Returns [(start, window)], best first."""
+    said = list(choices) if said is None else list(said)
     wanted = wanted_windows(choices)
+    slots = [t for t in slots if t not in set(exclude)]
     best = {}
     for t in slots:
         name = window_of(t)
@@ -123,10 +137,10 @@ def candidates(slots, minutes, choices=()):
         key = (t.date(), name)
         if key not in best or off < best[key][0]:
             best[key] = (off, t)
-    # Rank: fit to the answers, then day, then (for fallbacks) nearest to the
-    # wanted windows, then time.
+    # Rank: windows someone asked for, then fit to the answers, then day,
+    # then (for fallbacks) nearest to the wanted windows, then time.
     ranked = sorted(best.items(), key=lambda kv: (
-        fit(kv[0][1], choices), kv[0][0],
+        -asked_score(kv[0][1], said), fit(kv[0][1], choices), kv[0][0],
         kv[1][0] if kv[0][1] not in wanted else timedelta(0), kv[1][1]))
     return [(t, name) for (_, name), (_, t) in ranked][:SETTINGS["max_candidates"]]
 
