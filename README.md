@@ -8,6 +8,11 @@ AI agent reads their own calendar, and the agents agree on a time and pencil it 
 
 Built for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026), Indie track.
 
+## Prizes we're going for
+
+- Best Agentic Use Case
+- Best Build on Meta Open Weight Models
+
 ## Demo
 
 - Demo video: **TODO: add link**
