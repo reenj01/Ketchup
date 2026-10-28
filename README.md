@@ -1,294 +1,138 @@
 # Ketchup
 
-Two pocket pebbles that turn "let's catch up sometime" into a real plan.
+Two pocket pebbles that turn "let's catch up sometime" into a meeting on both calendars.
 
-When one of you says something like "let's catch up next week," both pebbles glow.
-You tap them together to agree. Each person's agent checks their calendar, and
-the agents settle on a time. The meeting lands on both calendars.
+"We should catch up" usually goes nowhere, because someone has to compare calendars
+and pick a time. With Ketchup, two friends tap their pebbles together, each person's
+AI agent reads their own calendar, and the agents agree on a time and pencil it in.
 
-Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), Indie track.
-All code in this repo was written during the event.
+Built for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026), Indie track.
 
-## Brain
+## Demo
 
-Muse Spark Open (`meta-models/muse-spark-open-1026`) on Baseten reads what was said
-and pulls out the plan. Meta's Model API (`muse-spark-1.3`) is the backup.
+- Demo video: **TODO: add link**
+- Live try-it page: **TODO: add link**
+
+The demo uses two seeded mock Google Calendars, Mayo and Frankie. Judges don't need to
+log in or connect any account. The organizers allow mock data.
+
+## How it works
 
 ```
-export BASETEN_API_KEY=...
-python3 brain/parse_plan.py "We should totally catch up next week, maybe grab lunch?"
+ Mayo's pebble ──tap──> Frankie's pebble     (two taps within 2 s = paired)
+        │                       │
+        ▼                       ▼
+  Mayo's agent  <──negotiate──>  Frankie's agent    (Muse Spark Open)
+  (Mayo's calendar)            (Frankie's calendar)
+        │                       │
+        └──> tentative event on both calendars <──┘
 ```
 
-## How a catch-up gets planned
+1. **Tap.** After someone says a plan ("let's catch up Thursday"), both pebbles are
+   tapped together. A magnet and Hall sensor detect the tap, and the server pairs two
+   taps that arrive within 2 s.
+2. **Ask.** Each pebble asks its person two questions: what time of day (morning, noon,
+   night) and how long to meet.
+3. **Negotiate.** Each person has their own agent. It sees its person's answers and
+   calendar, plus only the other person's free windows (never event titles). The agents
+   propose, accept or counter in strict JSON. Habits are inferred from each calendar,
+   never typed in, and what a person says always beats their habits.
+4. **Hard rules in code, not just in the prompt.** At least 30 minutes free around every
+   other event, a time already offered is never offered again, lengths are multiples
+   of 5 minutes (30 and 45 meet at 35).
+5. **Tentative hold.** A tentative event goes on both calendars with an agreed backup
+   time. It auto-confirms at 10 PM ET (11:59 PM if made at or after 10 PM), or 30 minutes
+   before the meeting if that's sooner.
+6. **Change.** A reply like "not Thursday, something later" becomes hard constraints
+   that add up across rounds. The hold moves to the backup if it fits, otherwise the
+   agents renegotiate, widening the search up to 8 weeks. The other person only hears
+   "Mayo would prefer a different day or time."
 
-Both pebbles are identical: each has a mic and a speaker. Nobody presses buttons.
-Everything is asked and answered by voice.
+The web page shows the whole flow on one screen: Mayo's chat, the two agents
+negotiating, and Frankie's chat. The **Ketchup** button stands in for the tap.
 
-1. **Tap.** Both pebbles are tapped together after someone says a plan.
-2. **Nudge.** Both pebbles say e.g. "Mayo and Frankie want to catch up Thursday!"
-3. **Morning, noon, or night?** Each pebble asks its person. Windows live in
-   `config/settings.json`, with no gaps between them: morning 8:00–11:59 AM,
-   noon 12:00–4:59 PM, night 5:00–9:00 PM (ET). A slot belongs to the window it
-   starts in, and must end by 9 PM, so the last 30-min start is 8:30 PM. If someone
-   doesn't answer within 30 s, their agent uses the habit it inferred from that
-   person's own calendar.
-4. **Agents pick a time.** Each person's agent shares only their free windows with
-   the other agent (times, never event titles). Answers are **soft preferences**:
-   slots in the asked-for window rank first (other windows stay on the list as
-   next-best options for "change"). If nothing there works for both, slots
-   in the other windows the same day are offered instead, nearest first, and everyone
-   is told plainly ("Nothing worked at noon on Thursday, so how about Thu Oct 29 at
-   10:00 AM?"). **What a person says always beats their habits.** Different answers
-   (morning vs night): slots in the two said windows rank first, never a middle window
-   nobody asked for.
-   Next week only if nothing works in any window on the plan's dates.
-5. **Agree on a time and a backup.** In the same negotiation turns the agents agree on a
-   slot and a backup slot (a different day or window, never a time offered before).
-6. **Pencil it in.** A **tentative** event goes on both calendars right away (Google
-   event status `tentative`, title ending "(tentative)"), and both pebbles say "How about
-   Fri Oct 30 at 10:30 AM? I've pencilled it in. If I don't hear from you, it's confirmed
-   tonight at 10 PM. Want to change it?"
-7. **Confirm.** A keep confirms it for that person. The plan is confirmed when both keep
-   it, or at the deadline: 10 PM ET if the hold was made before 10 PM, otherwise 11:59 PM
-   that same night (`hold_confirm_at` / `hold_late_confirm_at` in `config/settings.json`),
-   or 30 min before the meeting if that's sooner. Confirming patches both events to `confirmed` and drops the
-   "(tentative)" marker; each pebble says "Plan booked with Frankie."
-8. **Change, with a reason.** "Not Thursday, something later" is read into constraints
-   (keyword fast path, Muse Spark Open for anything else): not a day, only a day, later or
-   earlier, a time window, a date, a length. Code applies them as **hard filters** before
-   anything is ranked. If the backup meets them (and is still free), the hold moves there
-   at once and both are asked again. Otherwise the agents renegotiate under the
-   constraints and start their reasons with "You said not Thursday, so ...". What a
-   person says beats their habits. Reasons add up across changes (newest wins when two
-   contradict). **No cap on changes:** a time offered once is never offered again, and
-   when a week runs out the search widens a week at a time ("Nothing left Thu Oct 29-Fri
-   Oct 30, so looking at next week"), up to 8 weeks (`search_horizon_weeks`). If nothing
-   fits in that horizon, both are asked for a different day, time or length.
-9. **Privacy.** Your own chat or pebble may echo your words ("You said not Thursday,
-   so ..."). The other person never hears them, quoted or paraphrased: they get a fixed
-   template, "Mayo would prefer a different day or time, so here's a new one: Friday,
-   Nov 6 at 10:30 AM." Compromises read "To work for both of you, how about ...", never
-   "Frankie picked mornings". These lines come from `brain/privacy.py` templates, never
-   from model text. The agent-to-agent middle chat still shows the reason (the agents
-   need it).
-10. **Lengths are multiples of 5.** Anything else rounds down: "37 minutes" → 35,
-   "1 hr 22" → 80. Two lengths meet at the average rounded down: 30 and 45 → 35, 45 and
-   60 → 50 (`brain/lengths.py`, applied after answer mapping, after every agent pick, and
-   to any length in shown or spoken text).
+## Meta AI used
 
-Holds are stored in `state/holds.json` (gitignored). The tap server and the web server
-check deadlines at startup and every 30 s (`hold_sweep_s`), and confirming is idempotent (event ids are
-chosen by Ketchup, so a retried insert can't double-book).
+| Model | Role | Status |
+|---|---|---|
+| Muse Spark Open (`meta-models/muse-spark-open-1026`) on Baseten | Main brain: parses the plan, infers habits from each calendar, runs both agents, maps free-text answers and change reasons | In the code (`brain/parse_plan.py`) |
+| Meta Model API `muse-spark-1.3` | Fallback when a Baseten call fails or returns bad JSON | In the code (`brain/parse_plan.py`) |
+| Muse Voice Transcribe (`muse-voice-transcribe-1.0`) | Speech-to-text on the pebbles | Planned, not in the repo yet |
 
-**Hard rule:** a proposed meeting always leaves at least 30 minutes free before and
-after every event on either calendar (`buffer_min` in `config/settings.json`). This is
-enforced in code before the agents see any option, so 7:30 PM is never offered when
-there's an event at 8 PM. Check it, along with the windows and the noon-blocked
-fallback: `.venv/bin/python tests/test_slots.py`
+Every model Ketchup calls at runtime is a Meta model. Voice output on the pebbles will
+be espeak, a non-AI synthesizer (planned). Today the web page takes typed answers.
 
-Voice answers are mapped by Muse Spark Open, so "ugh, mornings are rough, evening
-please" becomes `night` and "can we do a different time?" becomes `change`. Plain
-answers skip the model to save time: `mornings`, `evening`, `tonight`, `lunch`,
-`30 min`, `an hour`, `yes`, `no` and similar map instantly with a keyword table.
-If the answer is unclear, the question stays open.
+Every run writes a trace to `traces/` with each model call, agent turn, timing and the
+events created.
 
-## Run it from the command line
+## Privacy and listening
+
+- The pebbles are never always listening. They listen only for a short window after a
+  tap or when the two pebbles are near each other.
+- Only that window's audio goes to Meta for transcription.
+- Agents share free windows, not event titles.
+- A person's reason for a change is never passed to the other person.
+
+## Built during the hackathon
+
+All code in this repo was written during the event. The first commit is Oct 27, 2026,
+and the full history is in `git log`. Nothing pre-existing was reused. Outside
+dependencies are only `google-auth` and `google-api-python-client`; the servers use
+the Python standard library.
+
+## Run it locally
+
+Needs Python 3.9+, a Baseten key, and a Google service account that both demo
+calendars are shared with.
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-export BASETEN_API_KEY=... META_API_KEY=... GOOGLE_SA_JSON="$(cat service-account.json)"
-.venv/bin/python brain/demo.py "let's catch up Thursday"     # asks each question interactively
-.venv/bin/python brain/demo.py "let's catch up Thursday" \
-    --mayo morning --frankie night --confirm change,keep --dry-run
+cp .env.example .env     # then fill in the keys below
 ```
 
-- `--mayo` / `--frankie`: that person's answer (any words, or `timeout` for no answer).
-- `--confirm keep`: reply per round for both (`keep`, `change`, or a reason like
-  `not thursday, something later`; separate rounds with `|` if a reason has commas). Use
-  `--mayo-confirm` and `--frankie-confirm` per person. Once a person's replies run out
-  they stay silent.
-- `--skip-to-end-of-day`: if nobody else replies, act as if the deadline passed.
-- `--dry-run`: never book. `--pick N`: manual override that books option N.
-- Anything not given on the command line is asked interactively. Press Enter for no answer.
+Environment variables (names only):
 
-- `--extra-busy tests/fixtures/noon_blocked_thu.json`: add synthetic busy blocks for a
-  dry run (never written to a calendar), e.g. to force a fallback.
+- `BASETEN_API_KEY`: Muse Spark Open on Baseten (required)
+- `META_API_KEY`: Meta Model API fallback (optional)
+- `GOOGLE_SA_FILE` (path to the key JSON, default `service-account.json`) or
+  `GOOGLE_SA_JSON` (the key JSON itself)
 
-Real dry run where both said noon and synthetic blocks fill Thursday's noon:
-
-```
-Preferred: noon 12:00 PM-4:59 PM; other windows only if nothing fits (always 30 min clear of other events)
-  (dry run with synthetic busy blocks added: Mayo Thu 12:00 PM-2:00 PM; Frankie Thu 2:30 PM-5:00 PM)
-Options both are free for, best fit first:
-  1. Thu Oct 29, 5:30 PM ET [night] (fallback, Mayo: nothing worked at noon on Thursday; ...)
-  2. Thu Oct 29, 10:00 AM ET [morning] (fallback, Mayo: nothing worked at noon on Thursday; ...)
-Agents negotiating:
-  [round 1] Mayo's agent proposes slot 2 (Thu Oct 29, 10:00 AM ET, morning): Nothing worked at noon, so how about 10 AM Thursday?
-  [round 1] Frankie's agent accepts slot 2 (Thu Oct 29, 10:00 AM ET, morning): Nothing worked at noon, so how about 10 AM Thursday?
-Both pebbles say: "Nothing worked at noon on Thursday, so how about Thu Oct 29 at 10:00 AM? Want to change it?"
-```
-
-### The agents
-
-- One Muse Spark Open agent per person (`brain/agents.py`). Each knows what its person
-  said, their own calendar, and the other person's free windows only. The inferred habits
-  are added to the prompt only when that person gave no answer.
-- Habits are inferred, never typed: `brain/infer_prefs.py` gives Muse Spark Open the facts
-  of that person's own calendar (timed events from 4 weeks back to 2 weeks ahead), and
-  the model infers morning/afternoon/evening or no clear pattern, with confidence and
-  evidence. Habits are the default when someone doesn't answer, and otherwise only break ties.
-  Try it: `.venv/bin/python brain/infer_prefs.py mayo frankie`
-- The person who said the phrase goes first and proposes a slot with a one-line reason.
-  The other agent accepts or counters. Up to 2 rounds. If they still disagree, the slot with
-  the best combined rank wins.
-- Rules checked in code, not just asked for in the prompt: a slot already offered (in this
-  negotiation or an earlier change round) is never offered again; going first, the agent
-  proposes in its own person's said window; a counter stays in a window someone said. A
-  reply that breaks a rule is sent back once with the reason, then moved by code to that
-  agent's next allowed slot (or turned into an accept if nothing new is left). Check:
-  `.venv/bin/python tests/test_agent_rules.py`. Replay an old negotiation with today's
-  rules: `.venv/bin/python scripts/replay_negotiation.py traces/<file>.json`.
-
-### Speed
-
-`reasoning_effort` in `config/settings.json` is `low` (Muse Spark Open supports `low`,
-`medium`, `high`, `xhigh`; `xhigh` is the default and reasoning can't be turned off). On
-the same slot-pick prompt, Baseten took 2.6 s at the default and 0.9 s at `low`. Plus: plain
-answers map by keyword, both people's answers are mapped in parallel, habits are inferred
-in the background while the questions are asked (and cached until the calendar changes),
-and model calls reuse one HTTPS connection. A whole web session (two answers each, one
-change) went from about 126 s to about 27 s. Every trace has a `timing` block
-(per call: label, seconds, tokens).
-- Agents reply in strict JSON (`ranking`, `decision`, `pick`, `reason`). Malformed replies
-  are retried, then fall back to Meta's `muse-spark-1.3`.
-
-## Web page (watch everything on one screen)
-
-A three-chat page for seeing the whole flow: Mayo and Mayo's agent on the left,
-Frankie and Frankie's agent on the right, and the two agents negotiating in the
-middle. Press **Ketchup** (same as tapping the pebbles), answer both questions on
-each side ("What time of day do you prefer to meet?", "How long do you prefer to
-meet?"), and watch the agents settle the length and then the day and time. Answers are
-typed for now; on the pebbles they'll be spoken. Everything is live: Muse Spark
-Open maps the answers and runs both agents, and both real calendars are read.
-
-**Dry run (don't touch calendars)** is on by default. Turn it off to really book.
-While a hold is pencilled in, the middle column shows a **Tentative** badge, "Tentative,
-confirms tonight at 10 PM unless someone changes it" (or "tonight at 11:59 PM" for a
-hold made after 10 PM), who kept it, the backup slot,
-and a **Skip to end of day** button that runs the deadline now.
-
-### Run it on a Mac (first time)
-
-```
-cd ~/Desktop/ketchup
-git pull
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cp .env.example .env
-open -e .env
-```
-
-In `.env`, paste your Baseten key after `BASETEN_API_KEY=` (`META_API_KEY` is optional,
-for the backup model) and save. Then put the Google service account JSON key in the
-repo folder, named `service-account.json` (the default `.env` line,
-`GOOGLE_SA_FILE=service-account.json`, points at it):
-
-```
-mv ~/Downloads/<the-key-file>.json ~/Desktop/ketchup/service-account.json
-```
-
-`.env` and `service-account.json` are both gitignored, so they never get committed.
-
-Start the server, then open **http://localhost:8000**:
+Web page (reads `.env` on its own), then open http://localhost:8000:
 
 ```
 .venv/bin/python web/server.py
 ```
 
-Next time it's just `cd ~/Desktop/ketchup && git pull && .venv/bin/python web/server.py`
-(run `.venv/bin/pip install -r requirements.txt` again if `requirements.txt` changed).
-Stop it with Ctrl+C. Use `--port 9000` if 8000 is taken. The macOS built-in `python3`
-(3.9) works.
+"Dry run" is on by default, so nothing is written to the calendars.
 
-### How the page's flow works
-
-1. Each agent asks its person the two questions. Muse Spark Open turns free text into
-   morning / noon / night and into minutes ("an hour" → 60, always a multiple of 5).
-2. Middle chat: if the lengths differ, the agents agree on one (real model turns, up to 2
-   rounds, else the shorter; e.g. 30 and 45: "Let's meet in the middle at 35 min"). Each agent then shares its person's free times, and the agents
-   negotiate the day and time over the shared slots (30 min hard buffer, soft windows,
-   same-day fallback, the same rules as the pebbles).
-3. It pencils in a tentative event on both calendars (unless dry run) with the agreed
-   backup, and each agent says "Frankie and you are free on <day> at <time>. I've
-   pencilled it in your calendar (tentative). If I don't hear from you, it's confirmed
-   tonight at 10 PM. Do you want a different day or time?"
-4. Each reply is read as keep, change or unclear. Only a short affirmation keeps it
-   ("no", "nope", "no thanks", "keep it", "sounds good", "perfect", "that works"). Any
-   complaint, objection or preference is a change, even if it starts with "no" or contains
-   "not". "That's not at night" describes the pencilled slot, so the person wants night;
-   a bare "not at night" excludes night. If the reply is unclear, Ketchup asks "Should I
-   keep it or find another time?" and never defaults to keep. A reason ("not thursday,
-   something later") becomes hard
-   constraints. A stated time of day beats everything; only if no slot in that window
-   exists in the 8-week horizon does the search fall back to other windows, and it says so; the hold moves to the backup if it fits, otherwise the agents renegotiate
-   under them, as many times as it takes. The other person only hears "Mayo would prefer
-   a different day or time, so here's a new one: ...". When both keep it, or at the
-   deadline: "Plan booked with <other>."
-
-The page and the pebbles share this flow. API: `POST /api/start`,
-`GET /api/session/<id>?since=n`, `POST /api/session/<id>/say`,
-`POST /api/session/<id>/skip_to_end_of_day`. `python web/server.py --skip-to-end-of-day`
-confirms every pending hold and exits. `scripts/web_drive.py` runs a whole session
-(agree with a backup, Mayo says "not thursday, something later", Frankie silent, skip;
-`--changer frankie --change "that's not at night" --both-keep` replays the night case).
-
-## Tap server
-
-The pebbles talk to a small standard-library server.
+Tap server plus simulated pebble taps (export the variables above first):
 
 ```
-.venv/bin/python server/tap_server.py --dry-run   # port 8787
-.venv/bin/python scripts/fake_taps.py             # case 1: 0.5 s apart -> paired, voice answers; case 2: 3 s apart -> expired
-.venv/bin/python scripts/fake_taps.py --frankie-confirm "that's not at night"   # Frankie's reply to the pencilled time
+.venv/bin/python server/tap_server.py --dry-run     # port 8787
+.venv/bin/python scripts/fake_taps.py               # paired taps, then expired taps
 ```
 
-- `POST /tap {"device_id": "pebble-mayo", "phrase": "..."}` waits up to 2.0 s for a tap
-  from the other pebble. Both get the same `session_id`, or `expired`. Either pebble can
-  send the phrase it heard.
-- `GET /sessions/<id>` returns the `state` and, per device, the current question:
-  `{"kind": "time_of_day" | "confirm", "say": "<text for this pebble to speak>", "choices": [...]}`.
-  Each pebble polls it and speaks `say`. Responses also carry `speak` (device → text
-  to say now, e.g. "Plan booked with Mayo.") and `hold` (status, slot, deadline, backup).
-- `POST /sessions/<id>/answer {"device_id": "pebble-frankie", "answer": "<voice transcript or keyword>"}`
-  answers that device's open question (409 if there is none, or if it's unclear). The
-  reply includes `say`, what the pebble should answer back.
-- `POST /sessions/<id>/skip_to_end_of_day` confirms the pencilled-in hold now (demo);
-  `tap_server.py --skip-to-end-of-day` does it for every pending hold and exits.
-- States: `paired` → `asking_time_of_day` → `proposing` → `pencilled_in` → `booked`
-  (or `agreed (dry run, not booked)`) / `failed`.
+Command line:
 
-## Files
+```
+.venv/bin/python brain/demo.py "let's catch up Thursday" --mayo morning --frankie night --dry-run
+```
 
-- `config/settings.json`: the day (8 AM–9 PM), time windows, the 30 min buffer, answer timeout, `search_horizon_weeks` (8), length step/min/max (5/15/240), `reasoning_effort`.
-- `config/people.json`: each person's name, calendar and pebble device id.
-- `brain/parse_plan.py`: Muse Spark Open turns the phrase into a plan (activity, date window, 30 min default). Falls back to Meta's `muse-spark-1.3`.
-- `brain/calendar_slots.py`: free/busy, the 30 min buffer rule, each person's free windows, one candidate per day and window ranked by fit to the answers, fallback notes.
-- `brain/infer_prefs.py`: infers each person's habits from their own calendar.
-- `brain/agents.py`: the two agents and the negotiation.
-- `brain/flow.py`: the session state machine (nudge, questions, voice answer mapping, proposal, keep/change, booking), used by the CLI and the server.
-- `brain/holds.py`: tentative holds (create, move, confirm, release), the deadline, the store and the timer.
-- `brain/constraints.py`: reads a change reason into constraints and checks slots against them.
-- `brain/book.py`: puts the same event on each calendar (via a Google service account both calendars are shared with, so nobody signs in).
-- `brain/web_flow.py`: the web page's session (three chats, length negotiation, tentative hold, backup, change rounds).
-- `web/server.py`, `web/index.html`: the web page (standard library server, one HTML file). `.env.example` lists the keys it reads.
-- `scripts/web_drive.py`: drives a full web session over HTTP (optionally with screenshots).
-- `brain/timing.py`: records the time and tokens of every model and Google call.
-- `scripts/replay_negotiation.py`: re-runs a traced negotiation with the current agents (nothing booked).
-- `tests/test_slots.py`: checks the 30 min rule, the windows, the same-day fallback when noon is blocked, and that said windows rank before habits.
-- `tests/test_constraints.py`: reason parsing, constraint filtering, backups, deadlines, and holds confirming exactly once.
-- `tests/test_agent_rules.py`: checks the code rules (no repeats, said windows first).
-- `tests/test_replies.py`: about 30 replies mapped to keep / change / unclear, "that's not at night" vs "not at night", a model "no" with a reason still counts as a change, the web case searching again for night, unclear replies asked again, and the window fallback after 8 weeks.
-- `tests/test_changes.py`: lengths in 5s, the other side never hears the reason (web and pebble), no cap on changes (10 in a row, 11 different times), constraints accumulating.
-- `brain/lengths.py`, `brain/privacy.py`: the 5-minute rule and the other-person templates.
-- `traces/`: one JSON per run with every step: the plan, free/busy, inferred profiles (input facts, model reasoning, JSON), each answer and how it was mapped, shared free windows, every agent turn, each keep/change, and the created events.
+Tests:
+
+```
+for t in tests/test_*.py; do .venv/bin/python "$t"; done
+```
+
+## Hardware
+
+Two identical pebbles, one on a Raspberry Pi 5 and one on an Arduino UNO Q. Each has a
+mic, a speaker, a KY-003 Hall sensor, a magnet for the tap, and a power bank. The
+pebble code is not in the repo yet; the pebbles talk to `server/tap_server.py` over HTTP.
+
+## Connecting real calendars
+
+In the demo, a Google service account reads and writes the two seeded calendars, which
+are shared with it, so nobody signs in. A real user would connect with Google sign-in
+(OAuth) and grant calendar access. Their agent would then read that calendar and add
+holds to it the same way. The other person's agent still only sees free windows.
