@@ -10,12 +10,12 @@ paired -> asking_time_of_day -> proposing -> pencilled_in -> booked | failed
 3. The agents share each other's free windows (times only) and pick a slot.
    Answers are soft: slots in the asked-for window rank first; if none work
    (30 min buffer + both calendars), other windows the same day are offered and
-   the pebbles say so ("Nothing worked at noon, so how about 10:30 AM?").
+   the pebbles say so ("Nothing worked at noon. How about Thursday at 10:30 AM?").
    Next week only if nothing works in any window on the plan's dates.
    They agree a backup slot in the same turns.
 4. The slot goes on both calendars as a tentative hold (holds.py) and both
-   pebbles say "How about Thu Oct 29 at 12:00 PM? I've pencilled it in. If I
-   don't hear from you, it's confirmed tonight at 10 PM. Want to change it?"
+   pebbles say "How about Thursday at 12 PM? I'll hold it, and lock it in at
+   10 PM tonight. Want to change it?" (Spoken lines stay short and plain.)
    keep -> kept (both kept = confirmed now). Silence -> confirmed at the
    deadline (10 PM ET, or 11:59 PM if held at/after 10 PM; 30 min before it starts if sooner).
    change + reason ("not thursday, something later") -> hard constraints
@@ -37,7 +37,7 @@ from agents import fmt, negotiate
 from lengths import fix_text
 from privacy import Neutral, both
 from book import book
-from constraints import describe, followed, merge, parse_change, spoken, why_not
+from constraints import AT, describe, followed, merge, parse_change, spoken, why_not
 from calendar_slots import (ORDER, SETTINGS, WINDOWS, at, candidates, fallback_note, free_slots,
                             free_windows, freebusy, wanted_windows)
 from calendar_slots import window_of as w_of
@@ -54,6 +54,19 @@ Q_CHANGE = "Want to change it?"
 
 def hm(t):
     return t.strftime("%-I:%M %p")
+
+
+def spoken_when(t, today):
+    """'Tuesday at 6 PM'; the date too when it's a week or more away: 'Tuesday November 10 at 6 PM'."""
+    day = f"{t:%A}" if (t.date() - today).days < 7 else f"{t:%A %B %-d}"
+    return f"{day} at {holds.clock(t)}"
+
+
+def spoken_deadline(d, made):
+    """'at 10 PM tonight', 'at 5:30 PM today', 'at 9 AM tomorrow'."""
+    days = (d.date() - made.date()).days
+    day = ("tonight" if d.hour >= 17 else "today") if days == 0 else "tomorrow" if days == 1 else f"on {d:%A}"
+    return f"at {holds.clock(d)} {day}"
 
 
 WINDOW_TEXT = ", ".join(f"{k} {hm(a)}-{hm(b)}" for k, (a, b) in WINDOWS.items())
@@ -219,7 +232,7 @@ class Session:
                       constraints=cons and describe(cons))
             self.say(f'  {p["name"]} said "{text}" -> {choice or "unclear, asking again"}')
             if not choice:  # never default to keep: ask once more
-                again = ("Sorry, I didn't catch that. Should I keep it or find another time?"
+                again = ("Sorry, I missed that. Want to change it?"
                          if q["kind"] == "confirm" else q["say"])
                 return {"ok": False, "error": "unclear answer, question stays open", "say": again}
             (self.answers if q["kind"] == "time_of_day" else self.confirms)[p["name"]] = \
@@ -227,12 +240,13 @@ class Session:
             del self.questions[device_id]
             other = next(o["name"] for o in self.people if o is not p)
             if q["kind"] == "time_of_day":
-                say = f"Got it, {choice}. I'll check with {other}'s agent."
+                say = f"Okay, {choice}. Let me check with {other}."
             elif choice == "keep":
-                say = (f"Great, keeping it. It's confirmed once {other} keeps it too, or "
-                       f"{self.result['hold']['deadline_text']} if {other} doesn't reply.")
+                say = (f"Sounds good, we will keep it. It's set when {other} keeps it too, "
+                       f"or {self.result['hold']['spoken_deadline']}.")
             else:
-                say = f"Got it: {describe(cons)}. Give me a moment."
+                say = (f"Okay, {spoken(cons)}. Let me look for a new time." if spoken(cons)
+                       else "Okay, let me look for a new time.")
             return {"ok": True, "mapped_to": choice, "say": say,
                     "constraints": cons and describe(cons)}
 
@@ -319,8 +333,8 @@ class Session:
             self.say(f"No shared time found in the next {n} weeks.")
             self.confirms = {}
             self.set_state("pencilled_in")
-            return self.ask("confirm", f"I couldn't find a shared time in the next {n} weeks. "
-                            "What day, time or length would work instead?")
+            return self.ask("confirm", f"I couldn't find a time for you both in {n} weeks. "
+                            "What day or time works instead?")
         self.notes, self.shared = notes, shared
         self.say("Options both are free for, best fit first:")
         for i, (t, w) in enumerate(cands, 1):
@@ -358,11 +372,9 @@ class Session:
             return {}
         name, text, c = self.last_change
         self.last_change = None
-        f = (f"there's no {self.relaxed} time free for both of you in the next "
-             f"{SETTINGS['search_horizon_weeks']} weeks, so this is the closest"
-             if self.relaxed else followed(c, self.slot[0]))
-        return {p["device_id"]: (f"You said {spoken(c) or 'a different time'}, so I found a new time"
-                                 + (f": {f}. " if f else ". ") if p["name"] == name else Neutral(name))
+        f = f"No {self.relaxed} time is free for you both. This is the closest. " if self.relaxed else ""
+        return {p["device_id"]: (f"You said {spoken(c) or 'a different time'}. {f}"
+                                 if p["name"] == name else Neutral(name))
                 for p in self.people}
 
     def note_text(self, t):
@@ -373,12 +385,12 @@ class Session:
         return f" ({kind}, {'; '.join(f'{who}: {x}' for who, x in notes.items())})"
 
     def proposal_line(self, p, t):
-        """What one pebble says, plain about any fallback."""
-        q = f"how about {t:%a %b %-d} at {hm(t)}?"
+        """What one pebble says, plain about any fallback. Short: it is spoken out loud."""
+        q = f"how about {spoken_when(t, datetime.now(TZ).date())}?"
         choice = self.answers.get(p["name"], {}).get("choice")
         note = self.notes.get(t, {}).get(p["name"])
         if note and note.startswith("nothing worked"):
-            lead = f"Nothing worked at {choice} on {t:%A}, so {q}"
+            lead = f"Nothing worked {AT.get(choice, 'then')} on {t:%A}. {q[0].upper() + q[1:]}"
         elif note in ("the other person's pick", "middle ground"):
             lead = both(q)  # never reveal what the other person picked
         else:
@@ -402,6 +414,7 @@ class Session:
         dl = datetime.fromisoformat(self.hold["deadline"])
         self.result["hold"] = {"status": self.hold["status"], "slot": fmt(t), "deadline": dl.isoformat(),
                                "deadline_text": holds.deadline_text(dl, now),
+                               "spoken_deadline": spoken_deadline(dl, now),
                                "backup": self.backup and fmt(self.backup[0]),
                                "api_status": self.hold.get("api_status"), "event_ids": [
                                    e["event_id"] for e in self.hold["events"]]}
@@ -411,12 +424,11 @@ class Session:
                  + f"); confirms {self.result['hold']['deadline_text']} unless someone changes it.")
         self.confirms = {}
         self.set_state("pencilled_in")
-        when = self.result["hold"]["deadline_text"]
+        when = self.result["hold"]["spoken_deadline"]
         def head(p):
             h = (lead or {}).get(p["device_id"], "")
-            return h.text(f"{t:%A %b %-d} at {hm(t)}") if isinstance(h, Neutral) else f"{h}{self.proposal_line(p, t)}"
-        self.ask("confirm", {p["device_id"]: f"{head(p)} "
-                 f"I've pencilled it in. If I don't hear from you, it's confirmed {when}. {Q_CHANGE}"
+            return h.spoken(spoken_when(t, now.date())) if isinstance(h, Neutral) else f"{h}{self.proposal_line(p, t)}"
+        self.ask("confirm", {p["device_id"]: f"{head(p)} I'll hold it, and lock it in {when}. {Q_CHANGE}"
                  for p in self.people})
 
     def confirm_result(self):
@@ -445,8 +457,8 @@ class Session:
             f = followed(cons, b[0])
             self.say(f"  Backup {fmt(b[0])} fits ({f}): moving the hold there, no new negotiation.")
             said = spoken(cons) or "a different time"
-            return self.hold_and_ask({p["device_id"]: (f"You said {said}, so I moved it to our backup"
-                                                       + (f": {f}. " if f else ". ") if p["name"] == name else
+            return self.hold_and_ask({p["device_id"]: (f"You said {said}. "
+                                                       if p["name"] == name else
                                                        Neutral(name, "backup"))
                                       for p in self.people})
         self.say(f"  Backup {'doesn' + chr(39) + 't fit: ' + reason if b else 'used up'}; renegotiating under it.")

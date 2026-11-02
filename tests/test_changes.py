@@ -104,7 +104,9 @@ with tempfile.TemporaryDirectory() as d:
         seen = other_chat(s, n)
         mine = " ".join(m["text"] for m in s.messages[n:] if m["channel"] == "mayo")
         assert "Mayo would prefer a different day or time" in seen and "couldn't find" not in seen, seen
-        leaked = [w for w in secret + ["said", "asked", "\u201c", "because"] if w in seen.lower()]
+        assert seen.count("would prefer a different day or time") == 1, seen  # said once
+        own = seen.lower().replace("moved it to our backup", "")  # template words aren't a leak
+        leaked = [w for w in secret + ["said", "asked", "\u201c", "because"] if w in own]
         assert not leaked and text not in seen, (leaked, seen)
         assert "You said" in mine, mine  # the requester's own chat may echo them
         paths.append("backup" if "moved it to our backup" in seen else "new" if "here's a new one" in seen else "?")
@@ -151,7 +153,9 @@ fl.last_change = ("Mayo", raw, keyword("not thursday, something later", ref, dat
 fl.slot = (datetime(2026, 10, 30, 10, 30, tzinfo=TZ), "morning")
 fl.relaxed = None
 lead = fl.change_lead()
-assert "You said not Thursday" in lead["pebble-mayo"], lead
+assert "You said not on Thursday" in lead["pebble-mayo"], lead
 heard = lead["pebble-frankie"].text("Friday Oct 30 at 10:30 AM")
 assert not [w for w in ("thursday", "later", "dentist", "said", raw) if w in heard.lower()], heard
+said = lead["pebble-frankie"].spoken("Friday at 10:30 AM")  # the short line the pebble speaks
+assert not [w for w in ("thursday", "later", "dentist", "said", raw) if w in said.lower()], said
 print("OK privacy (pebble): Frankie's pebble:", heard)

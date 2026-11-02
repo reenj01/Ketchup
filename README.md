@@ -63,19 +63,39 @@ negotiating, and Frankie's chat. The **Ketchup** button stands in for the tap.
 |---|---|---|
 | Muse Spark Open (`meta-models/muse-spark-open-1026`) on Baseten | Main brain: parses the plan, infers habits from each calendar, runs both agents, maps free-text answers and change reasons | In the code (`brain/parse_plan.py`) |
 | Meta Model API `muse-spark-1.3` | Fallback when a Baseten call fails or returns bad JSON | In the code (`brain/parse_plan.py`) |
-| Muse Voice Transcribe (`muse-voice-transcribe-1.0`) | Speech-to-text on the pebbles | Planned, not in the repo yet |
+| Muse Voice Transcribe (`muse-voice-transcribe-1.0`) | Speech-to-text on the pebbles (hold-to-talk) | In the code (`pebble/pi_pebble.py`) |
+| MMS-TTS (`facebook/mms-tts-eng`, Meta's open weights, CC-BY-NC 4.0) | The pebble's voice, run on the pebble itself | In the code (`pebble/pi_pebble.py`) |
 
-Every model Ketchup calls at runtime is a Meta model. Voice output on the pebbles will
-be espeak, a non-AI synthesizer (planned). Today the web page takes typed answers.
+Every model Ketchup calls at runtime is a Meta model. Everything else is a plain OS
+feature, not a model: `arecord`/`aplay` for audio, GPIO for the LED and sensors, and
+espeak as a backup voice while MMS loads or if it is not installed. The web page takes
+typed answers.
 
 Every run writes a trace to `traces/` with each model call, agent turn, timing and the
 events created.
 
+## What's real and what's simulated
+
+- **Real hardware:** Mayo's pebble is a Raspberry Pi 5 running `pebble/pi_pebble.py`, with
+  the Hall sensor tap, the RGB LED, the hold-to-talk pressure sensor, the mic and speaker,
+  and MMS-TTS running on the Pi. The demo video shows it.
+- **Simulated:** Frankie's pebble (Arduino UNO Q) has no code yet. In hardware runs,
+  Frankie is played from a laptop terminal with `scripts/frankie_terminal.py`, which taps
+  and sends typed answers to the same server endpoints a pebble uses.
+- **Without hardware:** `scripts/sim_pebble.py` runs the Pi pebble code on a laptop with
+  mock GPIO pins and stub audio tools (see the comment at the top of the file).
+- **Proof:** every run writes a trace to `traces/` with each model call, agent turn,
+  timing and the events created.
+
+Muse Spark Open runs on Baseten's hosted endpoint and does the real work: it parses the
+plan, infers habits from each calendar, runs both agents, and maps free-text answers.
+
 ## Privacy and listening
 
-- The pebbles are never always listening. They listen only for a short window after a
-  tap or when the two pebbles are near each other.
-- Only that window's audio goes to Meta for transcription.
+- The pebbles are never always listening. The mic is live only while the owner holds
+  the pressure sensor (hold-to-talk).
+- Only that clip goes to Meta for transcription, and it is deleted from the pebble
+  right after it is read. No audio is saved.
 - Agents share free windows, not event titles.
 - A person's reason for a change is never passed to the other person.
 
@@ -133,8 +153,9 @@ for t in tests/test_*.py; do .venv/bin/python "$t"; done
 ## Hardware
 
 Two identical pebbles, one on a Raspberry Pi 5 and one on an Arduino UNO Q. Each has a
-mic, a speaker, a KY-003 Hall sensor, a magnet for the tap, and a power bank. The
-pebble code is not in the repo yet; the pebbles talk to `server/tap_server.py` over HTTP.
+mic, a speaker, a KY-003 Hall sensor, a magnet for the tap, an RGB LED, a pressure
+sensor for hold-to-talk, and a power bank. The Pi pebble is `pebble/pi_pebble.py`
+(pins and run steps in `pebble/README.md`); it talks to `server/tap_server.py` over HTTP.
 
 ## Connecting real calendars
 

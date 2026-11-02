@@ -20,12 +20,13 @@ class Neutral:
             return f"{self.name} would prefer a different day or time, so I moved it to our backup: {when}."
         return f"{self.name} would prefer a different day or time, so here's a new one: {when}."
 
-
-def finding(name):
-    """Told to the other person while a new time is being found."""
-    return f"{name} would prefer a different day or time, so I'm finding a new one."
+    def spoken(self, when):
+        """The same template, short and plain for a pebble to say out loud."""
+        if self.kind == "backup":
+            return f"{self.name} wants a different time. I moved it to our backup, {when}."
+        return f"{self.name} wants a different time. How about {when}?"
 
 
 def both(q):
     """A compromise shown without revealing the other person's answer."""
-    return f"To work for both of you, {q}"
+    return f"For both of you, {q}"

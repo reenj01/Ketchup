@@ -33,7 +33,7 @@ from datetime import date, datetime, timedelta
 
 from agents import fmt, negotiate, negotiate_length
 from lengths import clean, fix_text
-from privacy import Neutral, finding
+from privacy import Neutral
 import holds
 from constraints import describe, followed, merge, parse_change, why_not
 from calendar_slots import (SETTINGS, WINDOWS, at, candidates, fallback_note, free_slots, free_windows,
@@ -500,8 +500,8 @@ class WebSession:
 
     def _change(self, key, text, cons, how):
         other = self.other(key)
-        if self.open_q.pop(other, None):
-            self.post(other, "agent", finding(self.name(key)))
+        if self.open_q.pop(other, None):  # the template that follows says why, once
+            self.think(other, "finding a new time…")
         self.change_round += 1  # no cap: keep finding times until both keep one
         self.cons = merge(self.cons, cons)
         cur = self.slot

@@ -302,9 +302,9 @@ def spoken(c):
         return None
     parts = []
     if c["not_days"]:
-        parts.append(f"not {_days(c['not_days'])}")
+        parts.append(f"not on {_days(c['not_days'])}")
     if c["only_days"]:
-        parts.append(_days(c["only_days"]))
+        parts.append(f"on {_days(c['only_days'])}")
     if c["after"]:
         parts.append("something later")
     if c["before"]:
@@ -314,7 +314,7 @@ def spoken(c):
     if c["before_time"]:
         parts.append("earlier in the day")
     if c["windows"]:
-        parts.append("the " + " or ".join(c["windows"]))
+        parts.append(" or ".join(AT[w] for w in c["windows"]))
     if c["minutes"]:
         parts.append(f"{c['minutes']} minutes")
     return ", ".join(parts)
