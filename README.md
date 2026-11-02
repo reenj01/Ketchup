@@ -85,7 +85,8 @@ events created.
 - **Without hardware:** `scripts/sim_pebble.py` runs the Pi pebble code on a laptop with
   mock GPIO pins and stub audio tools (see the comment at the top of the file).
 - **Proof:** every run writes a trace to `traces/` with each model call, agent turn,
-  timing and the events created.
+  timing and the events created. Three sample traces are in the repo: a full web run
+  that ends agreed (Oct 29) and two runs from the Pi pebble on Nov 2.
 
 Muse Spark Open runs on Baseten's hosted endpoint and does the real work: it parses the
 plan, infers habits from each calendar, runs both agents, and maps free-text answers.
