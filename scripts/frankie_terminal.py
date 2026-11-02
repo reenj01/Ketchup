@@ -5,6 +5,8 @@
 Press Enter at the same moment the Pi pebble is tapped (taps within 2 s pair).
 Then each question for Frankie is printed; type Frankie's answer and press Enter.
 It goes to the same /answer endpoint the real pebble uses, as text (no mic).
+Once a time is pencilled in, type "skip" to confirm the hold now instead of
+waiting for the 10 PM auto-confirm (same as /sessions/<id>/skip_to_end_of_day).
 """
 import argparse
 import json
@@ -37,6 +39,7 @@ def main():
         if r.get("status") == "paired":
             break
     sid, answered = r["session_id"], None
+    print("SESSION", sid)
     while True:
         s = call(url, f"/sessions/{sid}")
         if s.get("state") in DONE:
@@ -44,10 +47,19 @@ def main():
             return
         q = s.get("questions", {}).get(DEVICE)
         key = q and (s.get("change_round"), q["say"])
+        if s.get("state") == "pencilled_in" and key == answered:
+            if input('Type "skip" to confirm the hold now, or Enter to keep waiting: ').strip().lower() == "skip":
+                r = call(url, f"/sessions/{sid}/skip_to_end_of_day", {})
+                print("SKIP", r.get("confirmed") or r.get("error"))
+            continue
         if q and key != answered:
             print(f'\nFRANKIE HEARS "{q["say"]}"')
             text = input("Frankie says: ").strip()
-            if text:
+            if text.lower() == "skip":
+                r = call(url, f"/sessions/{sid}/skip_to_end_of_day", {})
+                print("SKIP", r.get("confirmed") or r.get("error"))
+                answered = key
+            elif text:
                 a = call(url, f"/sessions/{sid}/answer", {"device_id": DEVICE, "answer": text})
                 print("REPLY", a.get("say") or a.get("error"))
                 answered = key
