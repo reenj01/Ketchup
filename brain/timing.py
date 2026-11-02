@@ -1,13 +1,17 @@
 """Every model and Google call, timed, so a session can report where time goes."""
+import contextvars
 import threading
 import time
 from contextlib import contextmanager
 
 CALLS = []
 _lock = threading.Lock()
+SID = contextvars.ContextVar("sid", default=None)  # the session a call belongs to (web simulator log)
 
 
 def record(**row):
+    if SID.get() and "sid" not in row:
+        row["sid"] = SID.get()
     with _lock:
         CALLS.append({"t": time.time(), **row})
 

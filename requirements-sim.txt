@@ -1,0 +1,12 @@
+# Web simulator (web/sim.py): brain + mock calendars + Meta MMS-TTS on CPU.
+# Install torch from the CPU wheel index first (much smaller than the CUDA build):
+#   pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements-sim.txt
+# Versions are the ones the simulator was tested with on Python 3.13.
+-r requirements.txt
+transformers==5.22.1
+tokenizers==0.23.3
+safetensors==0.8.0
+huggingface_hub==2.4.0
+numpy==2.5.4
+scipy==1.18.1

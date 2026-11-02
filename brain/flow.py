@@ -25,6 +25,7 @@ paired -> asking_time_of_day -> proposing -> pencilled_in -> booked | failed
 Answers are voice transcripts; Muse Spark Open maps them to a choice. A plain
 keyword ("night", "keep") is accepted directly, for testing.
 """
+import contextvars
 import json
 import threading
 import time
@@ -177,7 +178,9 @@ class Session:
             # Habits are read in the background (one Google client per thread)
             # while people answer; they're only needed for a missing answer.
             self._pool = ThreadPoolExecutor(2)
-            self._infs = [self._pool.submit(infer_prefs, calendar(), p, self.now) for p in self.people]
+            # copy_context: the habit calls keep this session's id (timing.SID) on the pool threads
+            self._infs = [self._pool.submit(contextvars.copy_context().run, infer_prefs, calendar(), p, self.now)
+                          for p in self.people]
             self.start_day = max(date.fromisoformat(plan["start_date"]), self.now.date())
             self.end_day = max(date.fromisoformat(plan["end_date"]), self.start_day)
             if self.start_day == self.end_day:

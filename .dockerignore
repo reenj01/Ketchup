@@ -1,0 +1,9 @@
+.env
+*.json.key
+service-account*.json
+state/
+traces/
+.venv/
+__pycache__/
+docs/
+.git/

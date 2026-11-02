@@ -49,7 +49,7 @@ def load_env(path=ROOT / ".env"):
 load_env()
 sys.path.insert(0, str(ROOT / "brain"))
 import holds  # noqa: E402
-from gcal import calendar  # noqa: E402
+from gcal import calendar, use_mock  # noqa: E402
 from web_flow import WebSession  # noqa: E402
 
 SESSIONS = {}
@@ -59,7 +59,7 @@ def missing_keys():
     out = []
     if not os.environ.get("BASETEN_API_KEY") and not os.environ.get("META_API_KEY"):
         out.append("BASETEN_API_KEY")
-    if not os.environ.get("GOOGLE_SA_JSON") and not os.environ.get("GOOGLE_SA_FILE"):
+    if not use_mock() and not os.environ.get("GOOGLE_SA_JSON") and not os.environ.get("GOOGLE_SA_FILE"):
         out.append("GOOGLE_SA_FILE (or GOOGLE_SA_JSON)")
     return out
 

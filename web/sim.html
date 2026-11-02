@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ketchup · Let's catch up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Bricolage Grotesque, Instrument Serif, Space Mono, DM Sans: all SIL Open Font License, served by Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Serif:ital@0;1&family=Space+Mono:wght@400;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet">
+<style>
+/* colour = meaning: orange = your move, pink = what people said, periwinkle = the agents,
+   yellow = pencilled in / sticky notes, green = booked */
+:root{
+  --ink:#1d1b22; --soft:#6d6a75; --faint:#b0adb6; --line:#1d1b22; --hair:#ebe8ef; --bg:#fff;
+  --orange:#ff6a2b; --pink:#ffb3cf; --peri:#8f8cf5; --peri-ink:#3d39b8; --yellow:#ffdd4a; --green:#7fd49b; --green-ink:#1f6b3a;
+  --led-yellow:247,201,72; --led-red:233,84,72; --led-green:110,190,130;
+  --serif:"Instrument Serif",Georgia,serif; --mono:"Space Mono",ui-monospace,monospace; --display:"Bricolage Grotesque","DM Sans",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+.wrap{max-width:1000px;margin:0 auto;padding:26px 28px 48px}
+header{display:flex;justify-content:space-between;align-items:center}
+.brand{font-family:var(--display);font-weight:800;font-size:19px;letter-spacing:-.02em}
+.brand i{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--orange);margin-right:8px;vertical-align:0}
+.link{background:none;border:0;padding:4px 0;color:var(--soft);cursor:pointer;font-size:14px;text-decoration:none}
+.link:hover{color:var(--ink)}
+.link:disabled{opacity:.4;cursor:default}
+.pill{border:1.5px solid var(--ink);border-radius:999px;padding:6px 14px;color:var(--ink);font-weight:500}
+.pill:hover{background:var(--yellow)}
+
+.hero{margin:50px 0 6px;position:relative}
+h1{font-family:var(--display);font-size:clamp(54px,10vw,118px);line-height:.9;letter-spacing:-.045em;margin:0;font-weight:800;color:var(--orange);position:relative;z-index:1}
+.squiggle{position:absolute;z-index:0;left:clamp(150px,30vw,330px);top:-44px;width:clamp(180px,34vw,340px);height:auto;pointer-events:none}
+.star{position:absolute;right:4%;top:6px;width:38px;height:38px}
+.plan{margin-top:18px;color:var(--soft);font-size:16px}
+.plan input{border:0;border-bottom:1.5px solid var(--hair);padding:2px 0;max-width:62vw;color:var(--ink);background:none;outline:none}
+.plan input:focus{border-bottom-color:var(--peri)}
+.plan input:disabled{color:var(--soft);border-bottom-color:transparent}
+
+.status{margin:40px 0 0;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;min-height:40px}
+.status .now{font-family:var(--serif);font-size:36px;line-height:1;letter-spacing:-.01em}
+.status .hint{color:var(--soft);font-size:15px}
+
+/* section titles, ticket-style: "the plan ( 02 )" */
+h2{font-family:var(--serif);font-weight:400;font-size:30px;margin:0 0 16px;letter-spacing:-.01em}
+h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
+
+/* pebbles */
+.pair{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:20px;border:1.5px solid var(--line);border-radius:22px}
+.side{padding:36px 26px 30px;text-align:center;position:relative;border-radius:22px;transition:background .5s}
+.side + .side{border-left:1.5px solid var(--line);border-radius:0 22px 22px 0}
+.side:first-of-type{border-radius:22px 0 0 22px}
+.pebble{width:132px;height:132px;border-radius:50%;margin:0 auto;cursor:grab;touch-action:none;position:relative;
+  background:radial-gradient(circle at 38% 32%,#ffffff 0%,#f4f2ee 45%,#e2dfd8 100%);
+  box-shadow:0 10px 24px rgba(29,27,34,.10), inset 0 -6px 14px rgba(0,0,0,.04);
+  transition:box-shadow .6s ease, transform .45s cubic-bezier(.2,.8,.2,1)}
+.pebble::after{content:"";position:absolute;inset:-16px;border-radius:50%;opacity:0;transition:opacity .6s ease, background .6s ease}
+.pebble.led-yellow::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-yellow),.45) 52%,rgba(var(--led-yellow),0) 72%)}
+.pebble.led-red::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-red),.36) 52%,rgba(var(--led-red),0) 72%);animation:breathe 2.6s ease-in-out infinite}
+.pebble.led-green::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-green),.45) 52%,rgba(var(--led-green),0) 72%)}
+.pebble.fade::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-yellow),.45) 52%,rgba(var(--led-yellow),0) 72%);animation:fadein 1.6s ease}
+.pebble::before{content:"";position:absolute;inset:0;border-radius:50%;z-index:1;background:inherit}
+.pebble .dot{position:absolute;z-index:2;left:50%;top:50%;width:10px;height:10px;margin:-5px;border-radius:50%;background:#e0ddd6;transition:background .6s}
+.pebble.led-yellow .dot,.pebble.fade .dot{background:rgb(var(--led-yellow))}
+.pebble.led-red .dot{background:rgb(var(--led-red))}
+.pebble.led-green .dot{background:rgb(var(--led-green))}
+.pebble.speaking{transform:scale(1.03)}
+.pebble.rec{transform:scale(.97)}
+.pebble.dragging{cursor:grabbing;transition:box-shadow .6s ease}
+@keyframes breathe{50%{opacity:.55}}
+@keyframes fadein{from{opacity:0}}
+.name{margin-top:22px;font-family:var(--serif);font-size:30px;line-height:1}
+.tag{display:inline-block;margin-top:10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:4px 10px;border-radius:999px;border:1.5px solid var(--hair);color:var(--soft)}
+.tag.agents{background:var(--peri);border-color:var(--peri);color:#fff}
+.tag.ok{background:var(--green);border-color:var(--green);color:var(--ink)}
+.sticky{font-style:normal;position:absolute;font-family:var(--mono);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:5px 10px;box-shadow:2px 2px 0 var(--ink);border:1.5px solid var(--ink);white-space:nowrap;z-index:4}
+.side .sticky{top:16px;right:18px;background:var(--orange);color:#fff;transform:rotate(6deg)}
+.q{margin:16px auto 0;max-width:300px;font-size:16px;line-height:1.45;min-height:46px}
+.heard{color:var(--soft);font-size:14px;margin-top:6px;min-height:20px}
+.heard b{background:var(--pink);color:var(--ink);font-weight:500;padding:1px 7px;border-radius:6px}
+.talk{margin-top:16px}
+.btn{border:1.5px solid var(--ink);border-radius:999px;padding:12px 24px;font-weight:700;font-size:15px;cursor:pointer;background:var(--ink);color:#fff;user-select:none;-webkit-user-select:none;touch-action:none;box-shadow:3px 3px 0 var(--ink);transition:transform .1s, box-shadow .1s}
+.btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
+.btn.orange{background:var(--orange)}
+.btn.rec{background:var(--peri)}
+.btn:disabled{background:#f4f2f6;color:var(--faint);border-color:var(--hair);box-shadow:none;cursor:default}
+.typed{display:none;margin:10px auto 0;max-width:260px;gap:6px}
+.typed.open{display:flex}
+.typed input{flex:1;min-width:0;border:0;border-bottom:1.5px solid var(--hair);padding:6px 2px;outline:none;background:none}
+.typed input:focus{border-bottom-color:var(--peri)}
+.typed button{border:0;background:none;color:var(--peri-ink);cursor:pointer;font-weight:700}
+.small{font-size:13px;margin-top:10px}
+.err{color:#c2381a;font-size:14px;margin-top:8px;min-height:0}
+.pairbtn{position:absolute;left:50%;top:86px;transform:translateX(-50%);z-index:3}
+.pairbtn:active{transform:translate(calc(-50% + 2px),2px)}
+
+/* lower half */
+.grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:56px;margin-top:60px}
+.notes{list-style:none;margin:0;padding:0}
+.notes li{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--hair);font-size:15px;line-height:1.45}
+.chip{flex:none;font-family:var(--mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:6px;margin-top:1px;width:134px;text-align:center}
+.notes li.human .chip{background:var(--pink)}
+.notes li.agent .chip{background:var(--peri);color:#fff}
+.notes li.pencil .chip{background:var(--yellow)}
+.notes li.done .chip{background:var(--green)}
+.notes li.fail .chip{background:var(--hair)}
+.notes li small{display:block;color:var(--soft);font-size:13.5px;margin-top:2px}
+.notes .empty{color:var(--faint);border-bottom:0}
+
+/* the plan as a ticket: notches cut into both sides, a perforation between them */
+.ticket{position:relative;border-radius:20px;background:#f6f4f8;min-height:300px;display:flex;flex-direction:column;
+  -webkit-mask:radial-gradient(circle 16px at 0 196px,#0000 97%,#000) left/51% 100% no-repeat,radial-gradient(circle 16px at 100% 196px,#0000 97%,#000) right/51% 100% no-repeat;
+          mask:radial-gradient(circle 16px at 0 196px,#0000 97%,#000) left/51% 100% no-repeat,radial-gradient(circle 16px at 100% 196px,#0000 97%,#000) right/51% 100% no-repeat}
+.ticket .top{height:196px;flex:none;padding:22px 26px 14px;display:flex;flex-direction:column}
+.ticket .bot{flex:1;padding:14px 26px 18px;border-top:2px dashed rgba(29,27,34,.28);margin:0 22px;padding-left:4px;padding-right:4px}
+.ticket .t{font-family:var(--serif);font-size:30px;line-height:1}
+.ticket .t i{font-size:.8em;color:rgba(29,27,34,.55)}
+.ticket .day{display:flex;align-items:flex-end;gap:14px;margin-top:auto}
+.ticket .num{font-family:var(--mono);font-weight:700;font-size:104px;line-height:.82;letter-spacing:-.06em}
+.ticket .mo{font-family:var(--serif);font-size:24px;line-height:1.05;padding-bottom:4px}
+.ticket .mo span{display:block;font-family:"DM Sans",sans-serif;font-size:14px;color:rgba(29,27,34,.6)}
+.row{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:3px 0}
+.row span{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:rgba(29,27,34,.6);padding-top:2px}
+.ticket .blank{margin:auto 0;color:var(--soft);font-size:15px;line-height:1.5}
+.ticket.pencil{background:var(--yellow)}
+.ticket.booked{background:var(--green)}
+
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));margin-top:34px;border:1.5px solid var(--line);border-radius:14px;position:relative}
+.week div{position:relative;padding:16px 7px 12px;border-right:1.5px solid var(--line);min-height:92px}
+.week div:first-child{border-radius:12px 0 0 12px}
+.week div:last-child{border-right:0;border-radius:0 12px 12px 0}
+.week span{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft)}
+.week b{display:block;font-family:var(--mono);font-size:24px;font-weight:400;letter-spacing:-.04em;margin-top:2px}
+.week em{display:block;margin-top:8px;font-style:normal;font-size:11.5px;font-weight:700}
+.week .hit{background:var(--yellow)}
+.week .hit.ok{background:var(--green)}
+.week .sticky{font-size:10px;padding:3px 6px;box-shadow:1.5px 1.5px 0 var(--ink)}
+.week .sticky.today{top:-12px;left:50%;margin-left:-26px;background:var(--yellow);transform:rotate(-5deg)}
+.week .sticky.done{bottom:-14px;left:50%;background:var(--pink);transform:translateX(-50%) rotate(5deg)}
+
+details{margin-top:48px;font-size:14px;color:var(--soft)}
+summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+summary::-webkit-details-marker{display:none}
+summary h2{margin:0}
+summary .models{display:flex;gap:6px;flex-wrap:wrap}
+summary .models em,.calls td.m em{font-style:normal;font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:6px;background:var(--peri);color:#fff}
+summary .models em:nth-child(2),.calls td.m em.v{background:var(--pink);color:var(--ink)}
+summary .models em:nth-child(3),.calls td.m em.s{background:var(--yellow);color:var(--ink)}
+.calls{width:100%;border-collapse:collapse;margin-top:16px}
+.calls td{padding:8px 10px 8px 0;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--ink)}
+.calls td.m{white-space:nowrap}
+.calls td.s{text-align:right;white-space:nowrap;font-family:var(--mono);font-size:12px}
+.calls tr.fail td{color:#c2381a}
+
+footer{margin-top:60px;padding-top:18px;border-top:1.5px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--soft)}
+footer .r{display:flex;gap:18px}
+
+@media (max-width:760px){
+  .wrap{padding:20px 18px 40px}
+  .hero{margin-top:36px}
+  .squiggle{left:110px;top:-18px;width:200px}
+  .star{width:28px;height:28px;top:-6px}
+  .status{margin-top:30px}
+  .status .now{font-size:30px}
+  .side{padding:30px 8px 22px}
+  .side .sticky{top:10px;right:6px;font-size:10px;padding:3px 7px}
+  .pebble{width:96px;height:96px}
+  .name{font-size:26px}
+  .pairbtn{position:static;transform:none;grid-column:1/-1;order:3;justify-self:center;margin:4px 0 22px}
+  .pairbtn:active{transform:translate(2px,2px)}
+  .side + .side{border-radius:0 22px 0 0}
+  .side:first-of-type{border-radius:22px 0 0 0}
+  .calls{font-size:13px}
+  .calls tr{display:grid;grid-template-columns:1fr auto;border-bottom:1px solid var(--hair);padding:8px 0}
+  .calls td{border:0;padding:2px 0}
+  .calls td.m{grid-column:1;grid-row:1}
+  .calls td.s{grid-column:2;grid-row:1}
+  .calls td:nth-child(2){grid-column:1/-1}
+  .q{font-size:15px}
+  .notes li{flex-direction:column;gap:6px}
+  .chip{width:auto}
+  .grid{grid-template-columns:1fr;gap:44px;margin-top:44px}
+  .ticket .num{font-size:88px}
+  .week b{font-size:17px}
+  .week div{padding:14px 3px 12px;min-height:84px}
+  .week .sticky.today{margin-left:-20px}
+  .squiggle{top:-30px}
+  .week span{font-size:9px}
+  .week em{font-size:10px}
+  .week .sticky{font-size:8.5px;padding:2px 4px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><i></i>Ketchup</div>
+    <button class="link pill" id="reset">New session</button>
+  </header>
+
+  <section class="hero">
+    <!-- hand-drawn squiggle and star, our own SVG -->
+    <svg class="squiggle" viewBox="0 0 340 120" fill="none" aria-hidden="true"><path d="M8 84c30-46 52-62 66-46s-8 52 14 52 36-74 62-72 2 64 30 66 34-70 62-68 6 58 34 56 40-40 56-52" stroke="#8f8cf5" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="star" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 2l4 12 12-4-8 10 8 10-12-4-4 12-4-12-12 4 8-10-8-10 12 4z" fill="#ffdd4a" stroke="#1d1b22" stroke-width="1.5" stroke-linejoin="round"/></svg>
+    <h1>Let's catch up.</h1>
+    <div class="plan">Mayo says “<input id="phrase" value="let's catch up this week" maxlength="120" aria-label="What Mayo says">”</div>
+  </section>
+
+  <div class="status"><span class="now" id="now">Touch the pebbles together.</span><span class="hint" id="hint">Drag one onto the other, or tap Pair.</span></div>
+
+  <section class="pair" id="stage">
+    <button class="btn orange pairbtn" id="tapbtn">Pair</button>
+    <div class="side" id="side-mayo">
+      <div class="pebble" id="peb-mayo"><span class="dot"></span></div>
+      <div id="co-mayo"></div>
+    </div>
+    <div class="side" id="side-frankie">
+      <div class="pebble" id="peb-frankie"><span class="dot"></span></div>
+      <div id="co-frankie"></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div>
+      <h2>the talk <i>( 01 )</i></h2>
+      <ul class="notes" id="conv"><li class="empty">Nothing yet.</li></ul>
+    </div>
+    <div>
+      <h2>the plan <i>( 02 )</i></h2>
+      <div class="ticket" id="card"></div>
+      <div class="week" id="week"></div>
+    </div>
+  </section>
+
+  <details id="calls-box">
+    <summary><h2>models <i>( 03 )</i></h2><span class="models"><em>Muse Spark</em><em>Muse Voice Transcribe</em><em>MMS-TTS</em></span> <span id="callsum"></span> <span id="calltoggle"></span></summary>
+    <table class="calls" id="calls"></table>
+  </details>
+
+  <footer>
+    <span>Simulated pebbles. Real hardware: Raspberry Pi 5 pebble shown in the video. Sample calendars, nothing is booked for real.</span>
+    <span class="r"><button class="link" id="skip" style="display:none">Skip to 10 PM</button><button class="link" id="mute">Voice on</button><a class="link" href="/classic">Classic page</a></span>
+  </footer>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const KEYS = ["mayo", "frankie"];
+const NAMES = {mayo: "Mayo", frankie: "Frankie"};
+const DONE = ["booked", "agreed (dry run, not booked)"];
+let sid = null, view = null, lineCount = 0, polling = null, busy = {mayo: false, frankie: false};
+let errs = {mayo: "", frankie: "", global: ""}, spoken = new Set(), voiceOn = true, health = {};
+let fadeUntil = {mayo: 0, frankie: 0}, lastState = null, typeOpen = {mayo: false, frankie: false}, weekData = null;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const other = k => k === "mayo" ? "frankie" : "mayo";
+const isOver = () => !view || DONE.includes(view.state) || view.state === "failed";
+
+// ---- tap or drag to pair ----
+let drag = null;
+KEYS.forEach(k => {
+  const el = $("#peb-" + k);
+  el.addEventListener("pointerdown", e => {
+    if (sid && !isOver()) return;
+    el.setPointerCapture(e.pointerId); el.classList.add("dragging");
+    drag = {k, el, x0: e.clientX, y0: e.clientY, moved: 0};
+  });
+  el.addEventListener("pointermove", e => {
+    if (!drag || drag.k !== k) return;
+    const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+    drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
+    el.style.transform = `translate(${dx}px,${dy}px)`;
+    const a = el.getBoundingClientRect(), b = $("#peb-" + other(k)).getBoundingClientRect();
+    if (Math.hypot(a.x - b.x, a.y - b.y) < a.width * 0.8) { endDrag(); pair(); }
+  });
+  el.addEventListener("pointerup", () => { if (drag && drag.k === k) { const tap = drag.moved < 6; endDrag(); if (tap) pair(); else el.style.transform = ""; } });
+});
+function endDrag() { if (drag) drag.el.classList.remove("dragging"); drag = null; }
+
+function pair() {
+  if (sid && !isOver()) return;
+  unlockAudio();
+  const a = $("#peb-mayo").getBoundingClientRect(), b = $("#peb-frankie").getBoundingClientRect();
+  const half = (b.x - a.x) / 2 - a.width * 0.45;
+  $("#peb-mayo").style.transform = `translateX(${half}px)`; $("#peb-frankie").style.transform = `translateX(${-half}px)`;
+  setTimeout(() => { KEYS.forEach(k => $("#peb-" + k).style.transform = ""); start(); }, 520);
+}
+$("#tapbtn").onclick = pair;
+const measure = document.createElement("canvas").getContext("2d");
+const fitPhrase = () => { const i = $("#phrase"); measure.font = getComputedStyle(i).font; i.style.width = Math.ceil(measure.measureText(i.value || "something").width + 6) + "px"; };
+document.fonts && document.fonts.ready.then(fitPhrase);
+$("#phrase").addEventListener("input", fitPhrase); fitPhrase();
+
+// ---- session ----
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  const ct = r.headers.get("content-type") || "";
+  return {ok: r.ok, status: r.status, body: ct.includes("json") ? await r.json() : await r.blob()};
+}
+const post = (path, data) => api(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
+async function start() {
+  errs = {mayo: "", frankie: "", global: ""};
+  $("#tapbtn").disabled = true;
+  const r = await post("/sim/api/tap", {phrase: $("#phrase").value, replaces: sid});
+  $("#tapbtn").disabled = false;
+  if (!r.ok) { errs.global = r.body.error || "Couldn't start. Try again in a moment."; return render(); }
+  sid = r.body.session_id; lineCount = 0; spoken = new Set(); typeOpen = {mayo: false, frankie: false};
+  view = {state: "paired", pebbles: {}, calls: [], lines: []};
+  $("#conv").innerHTML = ""; history.replaceState(null, "", "?session=" + sid);
+  clearInterval(polling); polling = setInterval(poll, 800); poll();
+}
+async function poll() {
+  if (!sid) return;
+  const asked = sid, since = lineCount;
+  const r = await api(`/sim/api/session/${sid}?since=${since}`).catch(() => null);
+  if (!r || asked !== sid) return;
+  if (!r.ok) { errs.global = r.body.error || "This session ended."; clearInterval(polling); return render(); }
+  if (r.body.line_count < lineCount) return;  // an older poll that arrived late
+  const fresh = (r.body.lines || []).slice(lineCount - since);  // skip lines another poll already added
+  view = r.body; lineCount = view.line_count;
+  addNotes(fresh);
+  if (view.state !== lastState) { lastState = view.state; loadWeek(); }
+  if (isOver()) { clearInterval(polling); setTimeout(loadWeek, 300); }
+  queueSpeech(); render();
+}
+
+// ---- the agents' notes: plain sentences, technical lines left out ----
+const SLOT = s => s.replace(/ ET$/, "");
+function note(l) {
+  const t = l.trim(); let m;
+  if ((m = t.match(/^Heard: "(.*)" \(said by (\w+)\)/))) return ["human", `${m[2]}: “${m[1]}”`];
+  if ((m = t.match(/^Nudge: (.*)/))) return ["agent", m[1]];
+  if ((m = t.match(/^Both pebbles say: "(.*)"/))) return ["agent", `Both pebbles ask: “${m[1]}”`];
+  if ((m = t.match(/^(\w+) said "(.*)" -> (.*)/))) return ["human", `${m[1]}: “${m[2]}”`];
+  if ((m = t.match(/^(\w+)'s agent shares free time/))) return ["agent", `${m[1]}'s agent shares free times, not events`];
+  if ((m = t.match(/^\[(?:length )?round \d+\] (\w+)'s agent (proposes|counters|accepts) slot \d+ \(([^,]+, [^,]+), \w+\)(?:: (.*))?/)))
+    return ["agent", `${m[1]}'s agent ${{proposes: "suggests", counters: "counters with", accepts: "agrees to"}[m[2]]} ${SLOT(m[3])}`, m[4]];
+  if ((m = t.match(/^(\w+) didn't answer -> agent uses calendar habit: (.*)/))) return ["agent", `${m[1]} didn't answer, so the agent went with ${m[1]}'s usual ${m[2]}`];
+  if ((m = t.match(/^Pencilled in (.+? ET)/))) return ["pencil", `Pencilled in ${SLOT(m[1])} on both calendars`];
+  if ((m = t.match(/^Confirmed (.+? ET)/))) return ["done", `Booked ${SLOT(m[1])}`];
+  if (/^Failed|^Error/.test(t)) return ["fail", t];
+  if (/change|new time|different/i.test(t) && !/^\w+'s pebble says|^(Mayo|Frankie)'s pebble/.test(t) && t.length < 140) return ["agent", t];
+  return null;
+}
+function addNotes(lines) {
+  const box = $("#conv");
+  for (const l of lines) {
+    const n = note(l); if (!n) continue;
+    // a colour chip says who: a person (pink), an agent (periwinkle), the plan (yellow, then green)
+    let chip, text = n[1], m;
+    if (n[0] === "human" && (m = text.match(/^(\w+): (.*)$/))) [chip, text] = [m[1], m[2]];
+    else if (n[0] === "agent" && (m = text.match(/^(\w+)'s agent (.*)$/))) [chip, text] = [m[1] + "'s agent", m[2][0].toUpperCase() + m[2].slice(1)];
+    else chip = {agent: "agents", pencil: "pencilled", done: "booked", fail: "note", human: "said"}[n[0]] || "note";
+    const li = document.createElement("li"); li.className = n[0];
+    li.innerHTML = `<span class="chip">${esc(chip)}</span><span>${esc(text)}${n[2] ? `<small>${esc(n[2])}</small>` : ""}</span>`;
+    box.appendChild(li);
+  }
+}
+
+// ---- pebbles ----
+function led(k) {
+  if (!sid || !view) return "white";
+  if (DONE.includes(view.state)) return "green";
+  if (view.state === "failed") return "white";
+  const p = view.pebbles[k] || {};
+  return p.question && !busy[k] ? "red" : "yellow";
+}
+function render() {
+  const st = view ? view.state : "idle";
+  for (const k of KEYS) {
+    const el = $("#peb-" + k), l = led(k), p = (view && view.pebbles[k]) || {};
+    el.classList.remove("led-red", "led-yellow", "led-green", "fade");
+    if (l === "yellow" && Date.now() < fadeUntil[k]) el.classList.add("fade");
+    else if (l !== "white") el.classList.add("led-" + l);
+    const canTalk = l === "red" && !recording;
+    const tag = !sid ? ["", "Ready"] : l === "red" ? ["", "Listening for you"] : l === "green" ? ["ok", "Confirmed"]
+      : busy[k] ? ["", "Listening…"] : st === "failed" ? ["", "Stopped"] : ["agents", "Agents talking"];
+    const lastReply = (p.replies || []).slice(-1)[0] || "";
+    const text = p.question || (DONE.includes(st) ? (p.speak || "All set.") : sid ? lastReply : "");
+    const co = $("#co-" + k), had = co.querySelector("input"), typed = had ? had.value : "", focused = had && document.activeElement === had;
+    co.innerHTML = `
+      ${l === "red" ? '<span class="sticky">Your turn</span>' : ""}
+      <div class="name">${NAMES[k]}</div>
+      ${l === "red" ? "" : `<span class="tag ${tag[0]}">${tag[1]}</span>`}
+      <div class="q">${esc(text)}</div>
+      <div class="heard">${p.heard ? "Heard <b>“" + esc(p.heard.text) + "”</b>" : ""}</div>
+      <div class="talk" style="${sid && !isOver() ? "" : "display:none"}">
+        <button class="btn ${recording === k ? "rec" : canTalk ? "orange" : ""}" data-talk="${k}" ${canTalk || recording === k ? "" : "disabled"}>${recording === k ? "Listening… let go to send" : "Hold to talk"}</button>
+        <div><button class="link small" data-open="${k}" ${canTalk ? "" : "disabled"}>${typeOpen[k] ? "" : "or type instead"}</button></div>
+        <div class="typed ${typeOpen[k] ? "open" : ""}"><input placeholder="Type an answer" value="${esc(typed)}" ${canTalk ? "" : "disabled"} data-type="${k}"><button data-send="${k}" ${canTalk ? "" : "disabled"}>Send</button></div>
+      </div>
+      <div class="err">${esc(errs[k])}</div>`;
+    if (focused && canTalk) co.querySelector("input").focus();
+  }
+  bindTalk();
+  // one plain status line
+  let now = "Touch the pebbles together.", hint = "Drag one onto the other, or tap Pair.";
+  if (sid) {
+    const reds = KEYS.filter(k => led(k) === "red").map(k => NAMES[k]);
+    const left = view.seconds_left != null && reds.length ? ` You have ${view.seconds_left} s.` : "";
+    if (st === "paired") now = "Paired.", hint = "Reading the plan…";
+    else if (reds.length) now = reds.join(" and ") + (reds.length > 1 ? ", your turn." : ", your turn."),
+      hint = (st === "pencilled_in" ? "Keep it, or ask for another time." : "Hold to talk on your pebble.") + left;
+    else if (st === "asking_time_of_day") now = "Checking with the other pebble.", hint = "";
+    else if (st === "proposing") now = "The agents are finding a time.", hint = "They share free times, never your events.";
+    else if (st === "pencilled_in") now = "Pencilled in.", hint = "It locks in at 10 PM unless someone changes it.";
+    else if (DONE.includes(st)) now = "Booked.", hint = "On both calendars. Press New session to try again.";
+    else if (st === "failed") now = "Something went wrong.", hint = "Press New session to try again.";
+  }
+  if (errs.global) hint = errs.global;
+  $("#now").textContent = now; $("#hint").textContent = hint;
+  $("#tapbtn").style.display = sid && !isOver() ? "none" : "";
+  $("#tapbtn").textContent = sid ? "Pair again" : "Pair";
+  $("#phrase").disabled = !!sid && !isOver();
+  $("#skip").style.display = st === "pencilled_in" ? "" : "none";
+  renderCard(); renderCalls();
+}
+function renderCard() {
+  const c = $("#card"), st = view ? view.state : "idle";
+  const start = view && view.hold && view.hold.start;
+  if (!start || !["pencilled_in", ...DONE].includes(st)) {
+    c.className = "ticket";
+    c.innerHTML = `<div class="top"><div class="t">${sid && st !== "failed" ? "in progress" : "nothing yet"}</div><div class="blank">${sid ? "The agents are comparing calendars." : "Once both agents agree, the time shows up here."}</div></div>
+      <div class="bot"><div class="row"><span>Who</span>Mayo + Frankie</div></div>`;
+    return;
+  }
+  const d = new Date(start), z = {timeZone: "America/New_York"};
+  const num = d.toLocaleDateString("en-US", {...z, day: "2-digit"});
+  const mo = d.toLocaleDateString("en-US", {...z, month: "long"}), wd = d.toLocaleDateString("en-US", {...z, weekday: "long"});
+  const tm = d.toLocaleTimeString("en-US", {...z, hour: "numeric", minute: "2-digit"});
+  const ok = DONE.includes(st);
+  c.className = "ticket " + (ok ? "booked" : "pencil");
+  c.innerHTML = `<div class="top"><div class="t">${ok ? "booked" : "pencilled in"} <i>( ${ok ? "✓" : "?"} )</i></div>
+      <div class="day"><div class="num">${num}</div><div class="mo">${wd}<span>${mo}</span></div></div></div>
+    <div class="bot"><div class="row"><span>When</span>${tm} ET</div><div class="row"><span>Length</span>${view.hold.minutes || 30} min</div>
+      <div class="row"><span>${ok ? "Who" : "Locks in"}</span>${ok ? "Mayo + Frankie" : "10 PM tonight"}</div></div>`;
+}
+function renderCalls() {
+  const calls = (view && view.calls) || [];
+  $("#callsum").textContent = calls.length ? `${calls.length} calls` : "";
+  $("#calltoggle").textContent = calls.length ? "· " + ($("#calls-box").open ? "hide" : "show") : "";
+  $("#calls").innerHTML = calls.map(c => `<tr class="${c.ok ? "" : "fail"}"><td class="m"><em class="${/transcribe/.test(c.model) ? "v" : /tts/.test(c.model) ? "s" : ""}">${esc(c.model.replace(/^meta-models\//, ""))}</em></td><td>${esc(c.what)}${c.ok ? "" : " (failed, used backup)"}</td><td class="s">${c.cached ? "saved" : c.seconds.toFixed(2) + " s"}</td></tr>`).join("");
+}
+$("#calls-box").addEventListener("toggle", renderCalls);
+
+// ---- week: big numerals, the hold as one block ----
+async function loadWeek() {
+  const r = await api("/sim/api/calendar" + (sid ? "?session=" + sid : "")).catch(() => null);
+  if (!r || !r.ok) return;
+  const W = r.body, z = {timeZone: "America/New_York"};
+  const dayOf = d => new Date(d).toLocaleDateString("en-CA", z);
+  const hold = (W.people.mayo.ketchup || [])[0];
+  $("#week").innerHTML = W.days.map((day, i) => {
+    const d = new Date(day + "T12:00:00");
+    const hit = hold && dayOf(hold.start) === day;
+    const tm = hit ? new Date(hold.start).toLocaleTimeString("en-US", {...z, hour: "numeric", minute: "2-digit"}) : "";
+    const ok = hit && hold.status === "confirmed";
+    return `<div class="${hit ? "hit" + (ok ? " ok" : "") : ""}">${i === 0 ? '<i class="sticky today">Today</i>' : ""}<span>${d.toLocaleDateString("en-US", {weekday: "short"})}</span><b>${String(d.getDate()).padStart(2, "0")}</b>${hit ? `<em>${tm}</em>` : ""}${ok ? '<i class="sticky done">Booked!</i>' : ""}</div>`;
+  }).join("");
+}
+
+// ---- answers: typed ----
+function bindTalk() {
+  document.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { typeOpen[b.dataset.open] = true; render(); document.querySelector(`[data-type="${b.dataset.open}"]`).focus(); });
+  document.querySelectorAll("[data-send]").forEach(b => b.onclick = () => sendTyped(b.dataset.send));
+  document.querySelectorAll("[data-type]").forEach(i => i.onkeydown = e => { if (e.key === "Enter") sendTyped(i.dataset.type); });
+  document.querySelectorAll("[data-talk]").forEach(b => {
+    b.onpointerdown = e => { e.preventDefault(); startRec(b.dataset.talk); };
+    b.onpointerup = b.onpointerleave = () => { if (recording === b.dataset.talk) stopRec(); };
+  });
+}
+async function sendTyped(k) {
+  const inp = document.querySelector(`[data-type="${k}"]`), text = inp.value.trim();
+  if (!text) return;
+  inp.value = ""; await sendAnswer(k, () => post(`/sim/api/session/${sid}/say`, {pebble: k, text}));
+}
+async function sendAnswer(k, call) {
+  busy[k] = true; errs[k] = ""; render();
+  const r = await call().catch(() => ({ok: false, body: {error: "Network error. Try again."}}));
+  busy[k] = false;
+  if (!r.ok) errs[k] = r.body.say ? "Didn't catch that. " + r.body.say : (r.body.error || "Something went wrong.");
+  if (r.body && r.body.say && /check with/i.test(r.body.say)) fadeUntil[k] = Date.now() + 6000;
+  await poll();
+}
+
+// ---- answers: hold to talk (browser mic -> 16 kHz mono WAV -> Muse Voice Transcribe on the server) ----
+let recording = null, ctx = null, stream = null, proc = null, chunks = [], recTimer = null;
+async function startRec(k) {
+  if (recording || led(k) !== "red") return;
+  errs[k] = "";
+  try {
+    stream = stream || await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}});
+  } catch (e) { errs[k] = "No microphone. Allow it, or type instead."; typeOpen[k] = true; return render(); }
+  unlockAudio(); stopSpeech();
+  const src = ctx.createMediaStreamSource(stream);
+  proc = ctx.createScriptProcessor(4096, 1, 1); chunks = [];
+  proc.onaudioprocess = e => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  src.connect(proc); proc.connect(ctx.destination); proc._src = src;
+  recording = k; $("#peb-" + k).classList.add("rec"); render();
+  recTimer = setTimeout(() => { if (recording) stopRec(); }, 14500);  // server cap is 15 s
+}
+function stopRec() {
+  const k = recording; if (!k) return;
+  clearTimeout(recTimer); recording = null; $("#peb-" + k).classList.remove("rec");
+  proc.disconnect(); proc._src.disconnect();
+  const n = chunks.reduce((a, c) => a + c.length, 0);
+  if (n < ctx.sampleRate * 0.35) { errs[k] = "Too short. Keep holding while you talk."; return render(); }
+  const all = new Float32Array(n); let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+  sendAnswer(k, () => api(`/sim/api/session/${sid}/voice?pebble=${k}`, {method: "POST", headers: {"Content-Type": "audio/wav"}, body: toWav(all, ctx.sampleRate)}));
+}
+function toWav(f32, rate) {
+  const ratio = rate / 16000, len = Math.floor(f32.length / ratio), pcm = new Int16Array(len);
+  for (let i = 0; i < len; i++) {  // average each window: a cheap low-pass before dropping samples
+    const a = Math.floor(i * ratio), b = Math.min(f32.length, Math.floor((i + 1) * ratio));
+    let s = 0; for (let j = a; j < b; j++) s += f32[j];
+    pcm[i] = Math.max(-1, Math.min(1, s / Math.max(1, b - a))) * 32767;
+  }
+  const buf = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(buf);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true);
+  v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, pcm.length * 2, true);
+  new Int16Array(buf, 44).set(pcm);
+  return new Blob([buf], {type: "audio/wav"});
+}
+let spaceHeld = null;
+document.addEventListener("keydown", e => {
+  if (e.code !== "Space" || e.repeat || /INPUT|BUTTON/.test(document.activeElement.tagName)) return;
+  const k = KEYS.find(k => led(k) === "red" && !busy[k]); if (!k) return;
+  e.preventDefault(); spaceHeld = k; startRec(k);
+});
+document.addEventListener("keyup", e => { if (e.code === "Space" && spaceHeld) { e.preventDefault(); if (recording === spaceHeld) stopRec(); spaceHeld = null; } });
+
+// ---- voice out: MMS-TTS made on the server, played on that pebble ----
+let speechQ = [], speaking = false, curSrc = null;
+function unlockAudio() { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); ctx.resume(); }
+function queueSpeech() {
+  if (!view || !view.pebbles) return;
+  for (const k of KEYS) {
+    const p = view.pebbles[k]; if (!p) continue;
+    for (const [id, text] of [...(p.replies || []).map((t, i) => [`r${i}`, t]), ...(p.speak ? [["s:" + p.speak, p.speak]] : [])]) {
+      const key = k + "|" + id;
+      if (spoken.has(key)) continue; spoken.add(key); speechQ.push({k, text});
+    }
+  }
+  playNext();
+}
+async function playNext() {
+  if (speaking || !speechQ.length) return;
+  const {k, text} = speechQ.shift();
+  if (!voiceOn || health.voice !== "ready" || recording) return playNext();
+  speaking = true;
+  try {
+    const r = await post("/sim/api/tts", {session_id: sid, text});
+    if (r.ok && ctx) {
+      const buf = await ctx.decodeAudioData(await r.body.arrayBuffer());
+      await new Promise(res => { curSrc = ctx.createBufferSource(); curSrc.buffer = buf; curSrc.connect(ctx.destination);
+        curSrc.onended = res; $("#peb-" + k).classList.add("speaking"); curSrc.start(); });
+    }
+  } catch (e) {}
+  $("#peb-" + k).classList.remove("speaking"); speaking = false; curSrc = null; playNext();
+}
+function stopSpeech() { speechQ = []; if (curSrc) try { curSrc.stop(); } catch (e) {} }
+$("#mute").onclick = () => { voiceOn = !voiceOn; if (!voiceOn) stopSpeech(); $("#mute").textContent = voiceOn ? "Voice on" : "Voice off"; };
+
+// ---- controls ----
+$("#reset").onclick = () => { stopSpeech(); clearInterval(polling); sid = null; view = null; lastState = null; errs = {mayo: "", frankie: "", global: ""};
+  $("#conv").innerHTML = '<li class="empty">Nothing yet.</li>'; history.replaceState(null, "", location.pathname); render(); loadWeek(); };
+$("#skip").onclick = async () => { $("#skip").disabled = true; await post(`/sim/api/session/${sid}/skip_to_end_of_day`, {}); $("#skip").disabled = false; poll(); };
+
+// ---- boot ----
+(async () => {
+  const r = await api("/sim/api/health").catch(() => null);
+  health = (r && r.body) || {};
+  if (!health.speech_to_text) errs.global = "Voice input is off here, so type your answers.";
+  if (health.voice === "loading") setTimeout(async () => { health = (await api("/sim/api/health")).body; }, 15000);
+  if (health.voice === "off") $("#mute").style.display = "none";
+  const q = new URLSearchParams(location.search).get("session");
+  render(); loadWeek();
+  if (q) { sid = q; view = {state: "paired", pebbles: {}, calls: []}; polling = setInterval(poll, 800); poll(); }
+})();
+</script>
+</body>
+</html>
