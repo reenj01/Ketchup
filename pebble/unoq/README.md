@@ -39,9 +39,17 @@ LED          ◄─ set_led()  ◄─Bridge──┘        │
 - Green: booked on both calendars. Lasts about 60 s, then back to dim white.
 - No red.
 
-The pad is a toggle: press once to turn the mic on, press again to turn it off and send. It stops on
-its own after 20 s. A press while the Dot is talking cuts it off and turns the mic on. It is never
-always-listening.
+The pad has a short press and a long press (the Pi's pad is still a plain toggle):
+
+- **Long press** (hold 1 s, `PEBBLE_LONG_PRESS_S`): keep the proposed time. At 1 s the LED flashes
+  green and the terminal prints `LONG PRESS: keep`. A recording in progress is dropped, not sent.
+- **Short press**: never approves. With the USB card's mic (found by `arecord -l`; force it with
+  `PEBBLE_MIC=1` or `0`), it works like the Pi: hear a new time, else press once for the mic, say
+  "no, pick a time at night", press again to send. It stops on its own after 20 s, and a press
+  while the Dot is talking cuts it off. Without a mic, a short press says the time again.
+
+If the Dot hears nothing it says nothing: the terminal prints `MIC heard nothing, waiting` and the
+LED goes back to what it was. It is never always-listening.
 
 ## 1. Put the files on the board
 
@@ -110,6 +118,8 @@ All the environment variables are the same as on the Pi:
 These are UNO Q only:
 
 - `DOT_POLL_MS`: how often the inputs are read. Default 25.
+- `PEBBLE_LONG_PRESS_S`: how long to hold the pad to keep a time. Default 1.0.
+- `PEBBLE_MIC`: `auto` (default: `arecord -l` lists the card), `1` or `0`. Decides what a short press does.
 - `APP_SOCKET`: the router socket. Default `unix:///var/run/arduino-router.sock`.
 
 ## 5. Test it
@@ -117,8 +127,9 @@ These are UNO Q only:
 1. **Magnet**: touch the magnet to the Hall sensor, then to Mayo's Dot (or `curl` its `/tap`). The LED
    breathes yellow while the agents pick a time, then goes bright white. Tap again or press the pad
    to hear the time (blue while it talks).
-2. **Pad**: press the FSR once (`MIC ON`, solid yellow), say your answer, press again (`MIC OFF`). The reply is
-   spoken. A bounce inside one press doesn't toggle twice.
+2. **Pad**: hold the FSR for 1 s to keep the time (green flash, `LONG PRESS: keep`, the reply is
+   spoken). For a change: a short press (`MIC ON`, solid yellow), say it, short press again (`MIC OFF`).
+   A short press never keeps a time, and a bounce inside one press doesn't count twice.
 3. A change makes both Dots breathe again until there's a new time. When both of you keep it, the LED goes green for about a minute, then dim white.
 
 **Without the board** (on the Mac, server running with `--dry-run`):

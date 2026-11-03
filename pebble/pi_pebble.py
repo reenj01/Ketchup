@@ -29,6 +29,10 @@ the reply ("say") is spoken. Auto-stops after 20 s (PEBBLE_REC_MAX_S). A press w
 is talking stops the voice and turns the mic on. The first edge of a press acts at once; edges
 within 50 ms of the last one are bounce (PEBBLE_DEBOUNCE_MS). The temp WAV is deleted right
 after it is read.
+If the Dot hears nothing (a clip under 0.5 s, no words, speech to text failing) or the server
+can't tell what the answer means, it says nothing: the terminal logs "MIC heard nothing, waiting"
+and the LED goes back to what it showed before the mic went on. Short or empty clips are not sent.
+The voice says "Frankie" as "Franky" (say_as(): audio only; IDs and env values stay frankie).
 
 A change ("no, pick a time at night") sends both agents back to deciding, until both keep it.
 
@@ -201,11 +205,23 @@ def clock_words(h, m, ampm=""):
     return out + {"a": " ay em", "p": " pee em"}.get(ampm[:1].lower(), "")
 
 
+# Names the voices get wrong, respelled for the audio only. IDs, env values (PEBBLE_ID=frankie,
+# pebble-frankie), the terminal and the screens keep the real name. "frankey" is how MMS says
+# "Franky" (Muse Voice Transcribe hears it as "Frankie"; MMS reads "franky" as "Frandy").
+SAY_AS = [(r"\b[Ff]rankie\b", "Franky", "frankey")]  # (pattern, espeak, MMS)
+
+
+def say_as(text, voice="espeak"):
+    for pat, espeak, mms_spelling in SAY_AS:
+        text = re.sub(pat, mms_spelling if voice == "mms" else espeak, text)
+    return text
+
+
 def mms_text(text):
     """Text -> what MMS-TTS can say. Its vocab is a-z, apostrophe, hyphen, space and digits 0-6
     (no 7/8/9, no colon); it drops punctuation. So spell out times, dates and numbers, expand
     day/month abbreviations, lowercase. Keeps . ? ! so the text can be split into sentences."""
-    t = text.replace("\u2019", "'").replace("&", " and ")
+    t = say_as(text.replace("\u2019", "'"), "mms").replace("&", " and ")
     t = re.sub(r"[\u201c\u201d\"()\[\]]", "", t)
     t = re.sub(r"\b(" + "|".join(sorted(DAYS, key=len, reverse=True)) + r")\b\.?", lambda m: DAYS[m[1]], t)
     t = re.sub(r"\b(" + "|".join(sorted(MONTHS, key=len, reverse=True)) + r")\b\.?", lambda m: MONTHS[m[1]], t)
@@ -418,7 +434,7 @@ def say_espeak(text, stop):  # the connected line slower (-s words per minute)
         print("no espeak-ng or espeak; run: sudo apt install -y espeak-ng", flush=True)
         return
     slow = ["-s", str(CONNECTED_ESPEAK_WPM)] if text == CONNECTED_LINE else []
-    tts = subprocess.Popen([tts_bin, *slow, "--stdout", text], stdout=subprocess.PIPE)
+    tts = subprocess.Popen([tts_bin, *slow, "--stdout", say_as(text)], stdout=subprocess.PIPE)
     play = subprocess.Popen(["aplay", "-q", "-D", CARD], stdin=tts.stdout, stderr=subprocess.DEVNULL)
     tts.stdout.close()
     now["player"] = [tts, play]
@@ -570,26 +586,33 @@ def mic_off(auto=False):
     threading.Thread(target=reply, args=(wav,), daemon=True).start()
 
 
+def heard_nothing(why):
+    """Nothing heard or understood: say nothing, send nothing more; the LED is already back to
+    what it showed before the mic went on (e.g. bright white with a time waiting)."""
+    print(f"MIC heard nothing, waiting ({why})", flush=True)
+    refresh()
+
+
 def reply(wav):
     if len(wav) < 16000:  # under ~0.5 s: a bump, not speech
-        print("MIC clip too short, nothing sent", flush=True)
-        return
+        return heard_nothing("clip too short, nothing sent")
     t0 = time.monotonic()
     try:
         text = transcribe(wav)
         print(f"TIME transcribe {time.monotonic() - t0:.1f} s", flush=True)
     except Exception as e:
-        print("ASR error", e, flush=True)
-        return say("Sorry, I couldn't hear that. Try again.")
+        return heard_nothing(f"speech to text failed: {type(e).__name__}, nothing sent")
     print(f'HEARD "{text}"', flush=True)
-    if not text:
-        return say("Sorry, I didn't catch that.")
+    if not re.search(r"[A-Za-z0-9]", text or ""):
+        return heard_nothing("no words, nothing sent")
     if not now["sid"]:
         return say("Touch Dots with a friend first.")
     t0 = time.monotonic()
     r = call(f"/sessions/{now['sid']}/answer", {"device_id": DEVICE, "answer": text})
     print(f"TIME server reply {time.monotonic() - t0:.1f} s", flush=True)
     print("ANSWER", {k: r.get(k) for k in ("ok", "mapped_to", "error", "state")}, flush=True)
+    if not r.get("ok") and "unclear" in str(r.get("error", "")):  # the server didn't understand it
+        return heard_nothing("unclear answer, the question stays open")
     line = r.get("say") or "Nothing to answer right now."
     if r.get("ok"):  # answered: from now on new times are said as they arrive
         now.update(answered=now["pending"], pending=None, engaged=True)

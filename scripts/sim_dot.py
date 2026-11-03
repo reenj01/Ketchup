@@ -14,9 +14,14 @@ line, its LED bright white, not blue) -> a time is ready -> the owner is away fo
 hears it (with --interrupt, a second press while it talks cuts it off and opens the mic) ->
 press once (mic ON, with a 10 ms bounce that must not toggle twice), say the next line (then
 "keep" for every later time), press again (mic OFF, sent) -> ... -> booked.
+UNO Q: a short press never approves, so presses there are short (released at 0.08 s) except
+"keep": the owner holds the pad PEBBLE_LONG_PRESS_S (1.0 s) -> "LONG PRESS: keep", a green flash,
+"keep it" sent, no mic. --say lines still go through the mic (short presses; PEBBLE_MIC=1, or
+--no-mic: no mic at all, short presses only say the time again, every answer is a long press).
 Prints the LED states and MIC lines the Dot logged and checks they follow
 dim white -> bright white -> yellow breathing -> bright white -> blue -> yellow (mic on) -> ...
--> green -> dim white, with one MIC ON and one MIC OFF per answer.
+-> green -> dim white, with one MIC ON and one MIC OFF per spoken answer and one LONG PRESS per
+UNO Q keep.
 """
 import argparse
 import io
@@ -92,6 +97,8 @@ class Tee(io.TextIOBase):
                 self.says.append((round(time.monotonic() - self.t0, 1), line[5:-1]))
             if line.startswith("MIC ON") or line.startswith("MIC OFF"):
                 self.mics.append(line.split(" -")[0].strip())
+            if line.startswith("LONG PRESS: keep") or line.startswith("SHORT PRESS"):
+                self.mics.append(line.split(":")[0])
         return self.out.write(s)
 
     def flush(self):
@@ -109,6 +116,7 @@ def main():
     ap.add_argument("--green-s", default="6", help="how long green holds (Dot default 60)")
     ap.add_argument("--router", action="store_true", help="unoq: go through arduino-router-bridge + a fake router")
     ap.add_argument("--old-sketch", action="store_true", help="unoq: sketch without breathe_rgb(), Linux steps set_led")
+    ap.add_argument("--no-mic", action="store_true", help="unoq: PEBBLE_MIC=0, every answer is a long press")
     ap.add_argument("--interrupt", action="store_true", help="press while the Dot says the first time")
     ap.add_argument("--walk-away", type=float, default=0,
                     help="after a time is ready, stay away this long first (the Dot must stay silent)")
@@ -123,7 +131,7 @@ def main():
         (stubs / name).write_text(body.replace("%s", str(stubs)))
         (stubs / name).chmod(0o755)
     os.environ.update(PATH=f"{stubs}:{os.environ['PATH']}", KETCHUP_SERVER=args.url, PEBBLE_ID=args.owner,
-                      PEBBLE_GREEN_S=args.green_s, PEBBLE_TTS="espeak")
+                      PEBBLE_GREEN_S=args.green_s, PEBBLE_TTS="espeak", PEBBLE_MIC="0" if args.no_mic else "1")
     tee = sys.stdout = Tee(sys.stdout, time.monotonic())
 
     if args.board == "pi":
@@ -166,7 +174,10 @@ def main():
     if not pb.now["sid"]:
         raise SystemExit("never paired")
     print(f"== {args.owner}: paired", flush=True)
-    holds_, cut = 0, not args.interrupt
+    unoq, mic = args.board == "unoq", not args.no_mic
+    if args.no_mic:
+        args.say, heard[:] = [], []
+    holds_, longs, cut = 0, 0, not (args.interrupt and mic)
     if args.walk_away:
         print(f"== {args.owner}: walks away", flush=True)
         deadline = time.monotonic() + 120
@@ -177,14 +188,14 @@ def main():
         time.sleep(args.walk_away)
         print(f"== {args.owner}: comes back", flush=True)
 
-    def click(bounce=False):
+    def click(bounce=False, hold=0.08):
         if tee.first_press is None:
             tee.first_press, tee.said_before = round(time.monotonic() - tee.t0, 1), len(tee.says)
             tee.leds_before = len(tee.leds)
         press()
         if bounce:  # the FSR chatters 10 ms into the press: must not count as a second press
             time.sleep(0.01); release(); time.sleep(0.01); press()
-        time.sleep(0.08); release(); time.sleep(0.1)
+        time.sleep(hold); release(); time.sleep(0.1)
 
     deadline = time.monotonic() + 300
     while pb.now["sid"] and time.monotonic() < deadline:
@@ -208,6 +219,14 @@ def main():
             time.sleep(args.wait)
             if pb.now["pending"] != p or not pb.now["sid"]:
                 continue  # withdrawn (the other person asked for a change) or done
+            if unoq and not heard:  # keep: hold the pad, no mic
+                print(f"\n== {args.owner}: holds the pad {unoq_dot.LONG_PRESS_S + 0.3:g} s (long press = keep)",
+                      flush=True)
+                click(bounce=True, hold=unoq_dot.LONG_PRESS_S + 0.3)
+                longs += 1
+                while pb.now["pending"] == p and pb.now["sid"]:
+                    time.sleep(0.2)
+                continue
             print(f"\n== {args.owner}: presses once (mic ON)", flush=True)
             click(bounce=True)
         line = heard[0] if heard else "keep"
@@ -245,11 +264,16 @@ def main():
         print("connected line through the stub espeak:", slow[0] if slow else "NOT SLOWED")
     # this Dot's owner asked for a change: the agents decided again right after its mic went off
     change = ["yellow breathing"] if args.say else []
-    want = ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)", "yellow (mic on)",
-            *change, "green", "dim white"]
+    want = ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)",
+            *(["yellow (mic on)"] if holds_ else []), *change, "green", "dim white"]
     it = iter(seq)
-    toggles = tee.mics == ["MIC ON", "MIC OFF"] * holds_  # one press = one toggle, bounce and all
-    ok = all(w in it for w in want) and "red" not in seq and holds_ >= 1 and not pb.now["rec"] and toggles \
+    mics = [m for m in tee.mics if m != "SHORT PRESS"]
+    # one press = one toggle, bounce and all; the UNO Q keeps with one long press each, the Pi by voice
+    toggles = mics == ["MIC ON", "MIC OFF"] * holds_ + ["LONG PRESS"] * longs if unoq else \
+        tee.mics == ["MIC ON", "MIC OFF"] * holds_
+    if unoq:
+        print(f"UNO Q presses: {longs} long (keep), {holds_} spoken answers; lines:", ", ".join(tee.mics))
+    ok = all(w in it for w in want) and "red" not in seq and holds_ + longs >= 1 and not pb.now["rec"] and toggles \
         and before == want_before and early == ["dim white", "bright white", "yellow breathing", "bright white"] \
         and bool(slow) == pb.SAY_CONNECTED
     print("ALL GOOD" if ok else "SOMETHING FAILED", flush=True)

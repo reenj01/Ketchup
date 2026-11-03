@@ -23,7 +23,7 @@ CASES = {
     "45 min": "forty-five minutes",
     "in 8 weeks": "in eight weeks",
     "2026": "two thousand twenty-six",
-    "Sorry, I didn't catch that.": "sorry, i didn't catch that.",
+    "Nothing to answer right now.": "nothing to answer right now.",
     "Got it: morning only.": "got it, morning only.",
     "You said \u201cnot Thursday\u201d": "you said not thursday",
 }
@@ -58,3 +58,23 @@ print("OK spoken lines: short, plain")
 assert pb.mms_text("Both Dots ask: Morning?") == "both dotts ask, morning?", pb.mms_text("Both Dots ask: Morning?")
 assert pb.mms_text("Mayo's Dot") == "mayo's dot"
 print("OK Dots respelled for MMS")
+
+# "Frankie" is said as "Franky" (audio only): MMS gets "frankey" (MMS reads "franky" as "Frandy"),
+# espeak gets "Franky". IDs, env values and the printed / on-screen text keep "Frankie".
+assert pb.mms_text("Plan booked with Frankie.") == "plan booked with frankey."
+assert pb.mms_text("Let me check with frankie. FRANKIE's Dot") == "let me check with frankey. frankie's dot"
+assert pb.say_as("Plan booked with Frankie.") == "Plan booked with Franky."
+assert pb.say_as("Frankie's Dot") == "Franky's Dot" and pb.say_as("Mayo") == "Mayo"
+import os, tempfile, threading  # noqa: E401,E402
+stub = Path(tempfile.mkdtemp(prefix="espeak_args_"))
+(stub / "espeak-ng").write_text('#!/bin/sh\nfor a; do echo "$a"; done >> "%s/args"\n' % stub)
+(stub / "aplay").write_text("#!/bin/sh\ncat > /dev/null\n")
+for f in ("espeak-ng", "aplay"):
+    (stub / f).chmod(0o755)
+path, os.environ["PATH"] = os.environ["PATH"], f"{stub}:{os.environ['PATH']}"
+try:
+    pb.say_espeak("Plan booked with Frankie.", threading.Event())
+finally:
+    os.environ["PATH"] = path
+assert (stub / "args").read_text().splitlines()[-1] == "Plan booked with Franky.", (stub / "args").read_text()
+print("OK Frankie said as Franky: MMS 'frankey', espeak 'Franky'; IDs untouched")
