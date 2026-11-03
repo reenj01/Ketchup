@@ -2,6 +2,10 @@
 
 paired -> asking_time_of_day -> proposing -> pencilled_in -> booked | failed
 (with --dry-run, "booked" becomes "agreed (dry run, not booked)").
+The physical Dots (server/tap_server.py) skip step 2: negotiate_first() goes
+paired -> proposing -> pencilled_in, so the agents pick a time from both
+calendars (and inferred habits) before anyone is asked anything; owners then
+keep it or ask for a change, in a loop, until both keep it.
 
 1. Nudge: "Mayo and Frankie want to catch up Thursday."
 2. Both pebbles ask "Morning, noon, or night?". Each person answers by voice.
@@ -197,6 +201,19 @@ class Session:
                 self.ask("time_of_day", "Morning, noon, or night?")
         except Exception as e:
             self.fail(e)
+
+    def negotiate_first(self):
+        """Dots: no question up front. Plan, then the agents pick a slot from both calendars
+        right away (habits stand in for answers), then both Dots get "How about ...? Want to
+        change it?". Changes loop through advance() -> change() as usual."""
+        self.start(ask=False)
+        if self.state == "failed":
+            return
+        with self.lock:
+            try:
+                self.propose()
+            except Exception as e:
+                self.fail(e)
 
     @property
     def profiles(self):

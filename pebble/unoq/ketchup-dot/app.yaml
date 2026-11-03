@@ -1,0 +1,3 @@
+name: Ketchup Dot
+icon: 🍅
+description: Frankie's Ketchup Dot. The sketch drives the RGB LED and reads the Hall sensor and FSR. The voice and network part runs as pebble/unoq/unoq_dot.py on the board's Linux shell.

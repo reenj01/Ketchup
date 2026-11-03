@@ -7,11 +7,16 @@ Both pebbles are the same: mic + speaker. They:
 1. POST /tap {"device_id": "pebble-mayo", "phrase": "let's catch up Thursday"}
    Waits up to 2.0 s for a tap from the other pebble. Both get the same
    {"status": "paired", "session_id": ...}, or {"status": "expired"}.
-2. Poll GET /sessions/<id>. "questions" holds, per device, the text to say out
-   loud ("say") while the session waits for that person.
+2. Right after pairing the agents pick a time from both calendars (no question
+   first). Poll GET /sessions/<id>: state "paired"/"proposing" = agents talking;
+   "questions" then holds, per device, the time to say out loud ("say"):
+   "How about Tuesday at 7 PM? ... Want to change it?". While the agents hold the
+   session lock the poll answers at once with {"busy": true} and no questions.
 3. POST /sessions/<id>/answer {"device_id": ..., "answer": "<voice transcript>"}
-   Muse Spark Open maps it to morning/noon/night or keep/change (with the
-   reason: "not thursday, something later"). Plain keywords work too.
+   Muse Spark Open maps it to keep/change (with the reason: "no, pick a time
+   at night"). A change sends both agents back to talking; the other Dot only
+   hears that a different time was wanted, never the words. Repeats until both
+   keep it. Plain keywords work too.
    Every answer response has "say": the text to speak back right away.
    GET /sessions/<id> has "speak": {device_id: text to say now}.
 4. After the agents agree, the time is a tentative hold on both calendars.
@@ -20,7 +25,7 @@ Both pebbles are the same: mic + speaker. They:
    hold_sweep_s and at startup (state/holds.json, idempotent).
    POST /sessions/<id>/skip_to_end_of_day {} confirms that hold now (demo).
 
-States: paired -> asking_time_of_day -> proposing -> pencilled_in ->
+States: paired -> proposing -> pencilled_in (-> proposing -> pencilled_in ...) ->
 booked | agreed (dry run, not booked) | failed.
 """
 import argparse
@@ -47,10 +52,19 @@ DRY_RUN = False
 
 
 def run_session(s):
-    s.start()
-    while s.state == "asking_time_of_day":  # people who don't answer get their habit
-        time.sleep(max(0.0, s.deadline - time.monotonic()) + 0.1)
-        s.advance()
+    s.negotiate_first()  # agents decide a time first; owners keep it or ask for another
+
+
+def snapshot(s):
+    """GET /sessions/<id>. The agents hold the session lock while they talk (seconds);
+    answer at once instead of making the Dots wait: state only, nothing to say yet."""
+    if not s.lock.acquire(blocking=False):
+        return {"session_id": s.sid, "state": s.state, "busy": True, "questions": {}, "speak": {},
+                "confirms": {}, "change_round": s.change_round}
+    try:
+        return s.public()
+    finally:
+        s.lock.release()
 
 
 def tap(device_id, phrase):
@@ -128,7 +142,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/sessions/"):
             s = sessions.get(self.path.removeprefix("/sessions/"))
-            return self._send(200, s.public()) if s else self._send(404, {"error": "no such session"})
+            return self._send(200, snapshot(s)) if s else self._send(404, {"error": "no such session"})
         self._send(404, {"error": "not found"})
 
     def log_message(self, fmt, *args):

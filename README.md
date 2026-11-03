@@ -81,11 +81,12 @@ events created.
 - **Real hardware:** Mayo's Dot is a Raspberry Pi 5 running `pebble/pi_pebble.py`, with
   the Hall sensor tap, the RGB LED, the hold-to-talk pressure sensor, the mic and speaker,
   and MMS-TTS running on the Pi. The demo video shows it.
-- **Simulated:** Frankie's Dot (Arduino UNO Q) has no code yet. In hardware runs,
-  Frankie is played from a laptop terminal with `scripts/frankie_terminal.py`, which taps
-  and sends typed answers to the same server endpoints a Dot uses.
-- **Without hardware:** `scripts/sim_pebble.py` runs the Pi Dot code on a laptop with
-  mock GPIO pins and stub audio tools (see the comment at the top of the file).
+- **Frankie's Dot (Arduino UNO Q):** code is in `pebble/unoq/`. The board's microcontroller
+  reads the tap and pressure sensors and drives the LED; its Linux side runs the same Dot
+  logic as the Pi. It passes the mock run but has not run on the real board yet. Frankie can
+  also be played from a laptop terminal with `scripts/frankie_terminal.py`.
+- **Without hardware:** `scripts/sim_dots.py` runs both Dots' code (Pi and UNO Q) on a laptop
+  with mock pins, a fake sketch and stub audio tools (see the comment at the top of the file).
 - **Proof:** every run writes a trace to `traces/` with each model call, agent turn,
   timing and the events created. Three sample traces are in the repo: a full web run
   that ends agreed (Oct 29) and two runs from the Pi Dot on Nov 2.
