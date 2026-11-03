@@ -50,7 +50,8 @@ def wait_for(cond, s=3.0):
 def reset(board):
     pb.now.update(sid=None, heard=None, answered=None, pending=None, engaged=False, green_until=0, rec=None,
                   led=None, gen=0, round=0, talk_until=0, mode="ready", speaking=False, hush=None, player=[],
-                  edge=-1.0, busy=False, booking=False)
+                  edge=-1.0, busy=False, booking=False, greeting=False)
+    pb.SAY_CONNECTED = False  # the "Dots connected" line on pairing: tests/test_dot_connected.py
     pb.led = unoq_dot.BridgeLED(board) if board else LED()
 
 

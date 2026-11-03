@@ -2,7 +2,7 @@
 
     python scripts/frankie_terminal.py [--url http://localhost:8787]
 
-Press Enter at the same moment the Pi pebble is tapped (taps within 2 s pair).
+Press Enter at the same moment the Pi pebble is tapped (taps within 5 s pair).
 Then each question for Frankie is printed; type Frankie's answer and press Enter.
 It goes to the same /answer endpoint the real pebble uses, as text (no mic).
 Once a time is pencilled in, type "skip" to confirm the hold now instead of

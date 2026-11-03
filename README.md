@@ -27,7 +27,7 @@ log in or connect any account. The organizers allow mock data.
 ## How it works
 
 ```
-   Mayo's Dot ───tap───>  Frankie's Dot     (two taps within 2 s = paired)
+   Mayo's Dot ───tap───>  Frankie's Dot     (two taps within 5 s = paired)
         │                       │
         ▼                       ▼
   Mayo's agent  <──negotiate──>  Frankie's agent    (Muse Spark Open)
@@ -38,7 +38,9 @@ log in or connect any account. The organizers allow mock data.
 
 1. **Tap.** After someone says a plan ("let's catch up sometime next week"), both Dots
    are tapped together. A magnet and Hall sensor detect the tap, and the server pairs two
-   taps that arrive within 2 s. The LEDs start breathing white.
+   taps that arrive within 5 s (`KETCHUP_PAIR_WINDOW_S`). Both LEDs go bright white, then
+   breathe yellow while the agents pick a time, and Mayo's Dot says "Dots connected. Starting
+   auto schedule." Nothing else is spoken until someone presses their Dot.
 2. **Negotiate first.** Each person has their own agent. Right after the tap, with no
    questions up front, the two agents pick a day and time. Each agent sees its own
    person's calendar, plus only the other person's free windows (never event titles).

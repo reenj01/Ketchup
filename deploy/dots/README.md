@@ -7,7 +7,10 @@ After a one-time install, demo day is:
 3. Wait for `BOTH DOTS ONLINE: ready to film` in the Mac terminal (about 30–90 s after power on).
 
 Nothing else runs on the Mac, and nothing gets typed on the boards. Each Hall tap sends its
-own `/tap`, so touching the two Dots together pairs them. No curl is needed.
+own `/tap`, so touching the two Dots together (or tapping each within 5 s,
+`KETCHUP_PAIR_WINDOW_S`) pairs them. No curl is needed. On pairing both LEDs go bright white,
+then breathe yellow while the agents pick a time, and Mayo's Dot says "Dots connected. Starting
+auto schedule." Nothing else is spoken until someone presses their Dot's pad (or taps it).
 
 ## What's in here
 

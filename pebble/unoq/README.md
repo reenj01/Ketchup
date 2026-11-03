@@ -104,6 +104,8 @@ All the environment variables are the same as on the Pi:
 
 - `KETCHUP_SERVER`, `PEBBLE_ID`, `PEBBLE_AUDIO`, `META_API_KEY`
 - `PEBBLE_TTS` (`mms` or `espeak`), `PEBBLE_GREEN_S`, `PEBBLE_PHRASE`
+- `PEBBLE_ANNOUNCE` (default `tap`: a ready time is said only on a tap or press),
+  `PEBBLE_SAY_CONNECTED` (default `0` here, so Frankie's Dot stays silent on pairing)
 
 These are UNO Q only:
 

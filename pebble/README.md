@@ -14,9 +14,12 @@ breathing in and out = the agents are deciding (right after the tap, and again a
 asks for a change); blue = the Dot is talking; solid bright yellow = the mic is on; green =
 booked on both calendars (60 s, then dim white). No red.
 
-There is no question up front: on the tap the agents pick a day and time from both
-calendars. When one is ready the LED stops breathing; tap the Dot or press the sensor
-to hear it ("How about Tuesday at 6 PM? ... Want to change it?"). Then answer: "keep it",
+There is no question up front: tap both Dots within 5 s (the server's
+`KETCHUP_PAIR_WINDOW_S`) and the agents pick a day and time from both calendars in the
+background. On pairing, Mayo's Dot says "Dots connected. Starting auto schedule." (made with
+MMS at startup, so it plays at once); Frankie's Dot stays silent. When a time is ready the LED
+stops breathing and goes bright white, and the Dot says nothing until you tap it or press the
+sensor to hear it ("How about Tuesday at 6 PM? ... Want to change it?"). Then answer: "keep it",
 or a change like "no, pick a time at night". A change sends both agents back to deciding,
 and once you have answered, each new time is spoken as soon as it is ready. When both
 owners keep a time it is booked.
@@ -55,7 +58,9 @@ prints `VOICE Meta MMS-TTS ready` once it has loaded.
 Optional: `PEBBLE_AUDIO` (ALSA device), `PEBBLE_PHRASE` (the plan, e.g. "let's
 catch up Thursday"), `PEBBLE_GREEN_S` (green hold, default 60), `PEBBLE_TTS=espeak`
 (skip MMS and use espeak only), `PEBBLE_BREATHE_S` (one breath, default 3),
-`PEBBLE_ANNOUNCE=auto` (speak every new time without waiting for a tap/press),
+`PEBBLE_ANNOUNCE=auto` (speak every new time without waiting for a tap/press; default `tap`),
+`PEBBLE_SAY_CONNECTED` (`1` = say the connected line on pairing; default `1` for mayo, `0`
+otherwise), `PEBBLE_CONNECTED_LINE` (default "Dots connected. Starting auto schedule."),
 `PEBBLE_TALK_MIN_S` (after a change, breathe at least this long, default 2.5),
 `PEBBLE_DIM` (idle brightness, default 0.12), `PEBBLE_DEBOUNCE_MS` (press debounce, default
 50), `PEBBLE_REC_MAX_S` (mic auto-stop, default 20), `PEBBLE_GAP_MS` (pause between

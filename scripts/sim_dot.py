@@ -9,7 +9,8 @@
               (--router: through the real arduino-router-bridge client and a fake router socket).
 Stubs (no hardware): arecord "records" a 1 s silent WAV until stopped, espeak-ng only logs, aplay
 "plays" for 0.6 s, and Muse Voice Transcribe is replaced by the next --say line, so the Dot sends
-no audio anywhere. The flow it drives: tap at --at -> agents decide -> a time is ready -> a press
+no audio anywhere. The flow it drives: tap at --at -> agents decide (Mayo's Dot says the connected
+line) -> a time is ready -> the owner is away for --walk-away s and the Dot must say nothing -> a press
 hears it (with --interrupt, a second press while it talks cuts it off and opens the mic) ->
 press once (mic ON, with a 10 ms bounce that must not toggle twice), say the next line (then
 "keep" for every later time), press again (mic OFF, sent) -> ... -> booked.
@@ -76,7 +77,9 @@ class Tee(io.TextIOBase):
     """Keeps every 'LED ...' and 'MIC ...' line the Dot prints, with a timestamp."""
 
     def __init__(self, out, t0):
-        self.out, self.t0, self.buf, self.leds, self.mics = out, t0, "", [], []
+        self.out, self.t0, self.buf, self.leds, self.mics, self.says = out, t0, "", [], [], []
+        self.first_press = None  # seconds in, when the owner first pressed the pad
+        self.said_before = None  # how many SAY lines came before that press
 
     def write(self, s):
         self.buf += s
@@ -84,6 +87,8 @@ class Tee(io.TextIOBase):
             line, self.buf = self.buf.split("\n", 1)
             if line.startswith("LED "):
                 self.leds.append((round(time.monotonic() - self.t0, 1), line[4:]))
+            if line.startswith('SAY "'):
+                self.says.append((round(time.monotonic() - self.t0, 1), line[5:-1]))
             if line.startswith("MIC ON") or line.startswith("MIC OFF"):
                 self.mics.append(line.split(" -")[0].strip())
         return self.out.write(s)
@@ -99,11 +104,13 @@ def main():
     ap.add_argument("--url", default="http://localhost:8787")
     ap.add_argument("--say", action="append", default=[], help="answers in order; 'keep' after they run out")
     ap.add_argument("--wait", type=float, default=0, help="seconds to wait after hearing a time, before answering")
-    ap.add_argument("--at", type=float, default=0, help="epoch time to tap the magnet (both Dots within 2 s)")
+    ap.add_argument("--at", type=float, default=0, help="epoch time to tap the magnet (both Dots within 5 s)")
     ap.add_argument("--green-s", default="6", help="how long green holds (Dot default 60)")
     ap.add_argument("--router", action="store_true", help="unoq: go through arduino-router-bridge + a fake router")
     ap.add_argument("--old-sketch", action="store_true", help="unoq: sketch without breathe_rgb(), Linux steps set_led")
     ap.add_argument("--interrupt", action="store_true", help="press while the Dot says the first time")
+    ap.add_argument("--walk-away", type=float, default=0,
+                    help="after a time is ready, stay away this long first (the Dot must stay silent)")
     args = ap.parse_args()
 
     stubs = Path(f"/tmp/ketchup_dot_stubs_{args.owner}")
@@ -157,9 +164,21 @@ def main():
         time.sleep(0.1)
     if not pb.now["sid"]:
         raise SystemExit("never paired")
+    print(f"== {args.owner}: paired", flush=True)
     holds_, cut = 0, not args.interrupt
+    if args.walk_away:
+        print(f"== {args.owner}: walks away", flush=True)
+        deadline = time.monotonic() + 120
+        while not pb.now["pending"] and time.monotonic() < deadline:
+            time.sleep(0.1)
+        print(f"== {args.owner}: (away) a time is ready, LED {pb.NAMES[pb.wanted()]}; staying away "
+              f"{args.walk_away:g} s more", flush=True)
+        time.sleep(args.walk_away)
+        print(f"== {args.owner}: comes back", flush=True)
 
     def click(bounce=False):
+        if tee.first_press is None:
+            tee.first_press, tee.said_before = round(time.monotonic() - tee.t0, 1), len(tee.says)
         press()
         if bounce:  # the FSR chatters 10 ms into the press: must not count as a second press
             time.sleep(0.01); release(); time.sleep(0.01); press()
@@ -212,13 +231,18 @@ def main():
     print("stub calls:", sum(x.startswith("arecord") for x in log), "arecord,",
           sum(x.startswith("espeak") for x in log), "espeak")
     print("MIC lines:", ", ".join(tee.mics))
+    before = [x for _, x in tee.says[:tee.said_before]]
+    want_before = [pb.CONNECTED_LINE] if pb.SAY_CONNECTED else []
+    print(f"spoken before the first press ({tee.first_press} s):", before or "nothing")
+    print("spoken in all:", "; ".join(f'{t}s "{x}"' for t, x in tee.says))
     # this Dot's owner asked for a change: the agents decided again right after its mic went off
     change = ["yellow breathing"] if args.say else []
     want = ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)", "yellow (mic on)",
             *change, "green", "dim white"]
     it = iter(seq)
     toggles = tee.mics == ["MIC ON", "MIC OFF"] * holds_  # one press = one toggle, bounce and all
-    ok = all(w in it for w in want) and "red" not in seq and holds_ >= 1 and not pb.now["rec"] and toggles
+    ok = all(w in it for w in want) and "red" not in seq and holds_ >= 1 and not pb.now["rec"] and toggles \
+        and before == want_before
     print("ALL GOOD" if ok else "SOMETHING FAILED", flush=True)
     raise SystemExit(0 if ok else 1)
 

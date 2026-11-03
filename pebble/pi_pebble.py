@@ -1,7 +1,10 @@
 """Ketchup pebble on a Raspberry Pi (gpiozero + ALSA). Talks to server/tap_server.py.
 
 Touch two pebbles together (KY-003 Hall sensor) -> POST /tap; the server pairs
-two taps within 2 s and the agents pick a time from both calendars right away.
+two taps within 5 s (the server's KETCHUP_PAIR_WINDOW_S) and the agents pick a time from both
+calendars right away, in the background. On pairing, Mayo's Dot says "Dots connected. Starting
+auto schedule." (PEBBLE_SAY_CONNECTED=1, the default for mayo only; frankie stays silent); the
+line is made with MMS at startup so it plays at once.
 Then poll GET /sessions/<id> and show it on the LED:
   dim white        = at rest (no session)
   bright white     = tapped / paired, a time is ready, or waiting on the other person
@@ -9,9 +12,9 @@ Then poll GET /sessions/<id> and show it on the LED:
   blue             = the Dot (the AI agent) is talking
   solid yellow     = the mic is on (recording)
   green            = booked by both (held 60 s, then dim white)
-Announce: when a time is ready the Dot says it on the next tap (magnet) or FSR
-press. After the owner has answered once, new times are said as they arrive.
-PEBBLE_ANNOUNCE=auto says every time as it arrives.
+Announce: when a time is ready the Dot says nothing on its own; it says the time on the next
+tap (magnet) or FSR press (PEBBLE_ANNOUNCE=tap, the default). After the owner has answered once,
+new times are said as they arrive. PEBBLE_ANNOUNCE=auto says every time as it arrives.
 Voice: Meta's open-weights MMS-TTS (facebook/mms-tts-eng) runs on the pebble,
 loaded once in the background; espeak-ng (an OS voice, not a model) speaks until
 it's loaded, or if torch/transformers aren't installed. PEBBLE_TTS=espeak skips MMS.
@@ -61,6 +64,8 @@ PHRASE = os.environ.get("PEBBLE_PHRASE")  # optional: the plan said out loud, e.
 GREEN_S = float(os.environ.get("PEBBLE_GREEN_S", 60))
 BREATHE_S = float(os.environ.get("PEBBLE_BREATHE_S", 3.0))  # one slow yellow breath
 ANNOUNCE = os.environ.get("PEBBLE_ANNOUNCE", "tap").lower()  # tap (say a new time on tap/press) | auto
+SAY_CONNECTED = os.environ.get("PEBBLE_SAY_CONNECTED", "1" if OWNER == "mayo" else "0") == "1"
+CONNECTED_LINE = os.environ.get("PEBBLE_CONNECTED_LINE", "Dots connected. Starting auto schedule.")
 TALK_MIN_S = float(os.environ.get("PEBBLE_TALK_MIN_S", 2.5))  # after a change both Dots breathe at least this long
 DIM = float(os.environ.get("PEBBLE_DIM", 0.12))  # dim white at rest
 DEBOUNCE_S = float(os.environ.get("PEBBLE_DEBOUNCE_MS", 50)) / 1000  # FSR edges closer than this are bounce
@@ -82,7 +87,8 @@ led = fsr = hall = None
 now = {"sid": None, "heard": None, "answered": None, "pending": None, "engaged": False, "green_until": 0,
        "rec": None, "wav": None, "busy": False, "led": None, "gen": 0, "round": 0, "talk_until": 0,
        "mode": "ready", "speaking": False, "hush": None, "player": [], "edge": -1.0, "rec_t0": 0,
-       "booking": False}
+       "booking": False, "greeting": False}
+ready_pcm = {}  # text -> MMS PCM made at startup (the connected line), played without waiting on the model
 speaking = threading.Lock()
 led_lock = threading.Lock()
 mic_lock = threading.Lock()
@@ -97,8 +103,8 @@ def wanted():
     """The one colour the LED should show now, most urgent first."""
     if now["rec"]:
         return YELLOW
-    if now["speaking"] or now["booking"]:
-        return BLUE  # talking (or about to say it's booked)
+    if now["speaking"] or now["booking"] or now["greeting"]:
+        return BLUE  # talking (or about to say it's booked / that the Dots connected)
     if now["sid"]:
         return BREATHE if now["mode"] == "talking" else WHITE
     if now["busy"]:
@@ -240,6 +246,8 @@ def load_mms():
         mms.update(model=m, tok=AutoTokenizer.from_pretrained(MMS_ID), torch=torch, np=np)
         for _ in mms_pcm("warming up the voice now"):  # first run is slow; pay it at startup
             pass
+        if SAY_CONNECTED:  # made once now, so it plays the moment the Dots pair
+            ready_pcm[CONNECTED_LINE] = b"".join(mms_pcm(CONNECTED_LINE))
         print(f"VOICE Meta MMS-TTS ready ({time.monotonic() - t0:.0f} s)", flush=True)
     except Exception as e:
         print(f"VOICE MMS-TTS unavailable ({type(e).__name__}: {e}); using espeak-ng", flush=True)
@@ -330,7 +338,7 @@ def say_mms(text, stop, t_text):
 
     def make():
         try:
-            for pcm in mms_pcm(text):
+            for pcm in ([ready_pcm[text]] if text in ready_pcm else mms_pcm(text)):
                 if stop.is_set():
                     break
                 parts.put(pcm)
@@ -436,8 +444,19 @@ def on_tap():
     if r.get("status") == "paired":  # the agents start picking a time right away
         now.update(sid=r["session_id"], heard=None, answered=None, pending=None, engaged=False, green_until=0,
                    round=0, talk_until=0, mode="talking")
+        if SAY_CONNECTED:  # its own thread: the agents and the polling go on while it plays
+            now["greeting"] = True
+            threading.Thread(target=say_connected, daemon=True).start()
     now["busy"] = False
-    refresh()  # yellow breathing (paired) or dim white (no partner)
+    refresh()  # yellow breathing (paired; blue first while the connected line plays) or dim white
+
+
+def say_connected():
+    try:
+        say(CONNECTED_LINE)
+    finally:
+        now["greeting"] = False
+        refresh()
 
 
 def announce(again=False):

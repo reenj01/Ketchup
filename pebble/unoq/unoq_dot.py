@@ -14,7 +14,8 @@ two inputs are reached over the Arduino Bridge (arduino-router, MessagePack-RPC)
     Bridge.call("get_inputs")         -> taps * 2 + pressed   (polled every 25 ms)
 
 Same environment variables as the Pi: KETCHUP_SERVER, PEBBLE_ID (defaults to frankie here),
-PEBBLE_AUDIO, PEBBLE_PHRASE, PEBBLE_GREEN_S, PEBBLE_TTS, META_API_KEY. Extra: APP_SOCKET
+PEBBLE_AUDIO, PEBBLE_PHRASE, PEBBLE_GREEN_S, PEBBLE_TTS, PEBBLE_ANNOUNCE (default tap),
+PEBBLE_SAY_CONNECTED (default 0 here: Frankie's Dot is silent on pairing), META_API_KEY. Extra: APP_SOCKET
 (router address, default unix:///var/run/arduino-router.sock), DOT_POLL_MS (default 25).
 
     python3 unoq_dot.py          # on the UNO Q, with the ketchup-dot App running (sketch flashed)

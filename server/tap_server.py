@@ -5,8 +5,8 @@
 
 Both pebbles are the same: mic + speaker. They:
 1. POST /tap {"device_id": "pebble-mayo", "phrase": "let's catch up Thursday"}
-   Waits up to 2.0 s for a tap from the other pebble. Both get the same
-   {"status": "paired", "session_id": ...}, or {"status": "expired"}.
+   Waits up to 5 s (KETCHUP_PAIR_WINDOW_S) for a tap from the other pebble. Both get the
+   same {"status": "paired", "session_id": ...}, or {"status": "expired", "waited_s": ...}.
 2. Right after pairing the agents pick a time from both calendars (no question
    first). Poll GET /sessions/<id>: state "paired"/"proposing" = agents talking;
    "questions" then holds, per device, the time to say out loud ("say"):
@@ -34,6 +34,7 @@ booked | agreed (dry run, not booked) | failed.
 """
 import argparse
 import json
+import os
 import sys
 import threading
 import time
@@ -46,7 +47,7 @@ import holds  # noqa: E402
 from flow import Session  # noqa: E402
 from gcal import PEOPLE, calendar  # noqa: E402
 
-PAIR_WINDOW = 2.0
+PAIR_WINDOW = float(os.environ.get("KETCHUP_PAIR_WINDOW_S", 5))  # seconds between the two taps
 DEVICES = {p["device_id"]: key for key, p in PEOPLE.items()}
 
 lock = threading.Condition()
@@ -120,7 +121,7 @@ def tap(device_id, phrase):
             if me in pending:
                 pending.remove(me)
             if not me["session_id"]:
-                return {"status": "expired", "waited_s": PAIR_WINDOW}
+                return {"status": "expired", "waited_s": round(time.monotonic() - me["at"], 2)}
             return {"status": "paired", "session_id": me["session_id"],
                     "partner": me["partner"], "tap_gap_s": me["gap"]}
         pending.remove(partner)
@@ -217,7 +218,8 @@ def main():
             time.sleep(5)
             sweep_offline()
     threading.Thread(target=offline_timer, daemon=True).start()
-    print(f"Ketchup tap server on {args.host}:{args.port} (dry run: {DRY_RUN})", flush=True)
+    print(f"Ketchup tap server on {args.host}:{args.port} (dry run: {DRY_RUN}, "
+          f"pair window: {PAIR_WINDOW:g} s)", flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 
