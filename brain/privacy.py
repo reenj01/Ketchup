@@ -24,9 +24,4 @@ class Neutral:
         """The same template, short and plain for a pebble to say out loud."""
         if self.kind == "backup":
             return f"{self.name} wants a different time. I moved it to our backup, {when}."
-        return f"{self.name} wants a different time. How about {when}?"
-
-
-def both(q):
-    """A compromise shown without revealing the other person's answer."""
-    return f"For both of you, {q}"
+        return f"{self.name} wants a different time. You and {self.name} can do {when}."

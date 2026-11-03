@@ -14,12 +14,12 @@ keep it or ask for a change, in a loop, until both keep it.
 3. The agents share each other's free windows (times only) and pick a slot.
    Answers are soft: slots in the asked-for window rank first; if none work
    (30 min buffer + both calendars), other windows the same day are offered and
-   the pebbles say so ("Nothing worked at noon. How about Thursday at 10:30 AM?").
+   the pebbles say so ("Nothing worked at noon. You and Frankie can do Thursday at 10:30 AM.").
    Next week only if nothing works in any window on the plan's dates.
    They agree a backup slot in the same turns.
 4. The slot goes on both calendars as a tentative hold (holds.py) and both
-   pebbles say "How about Thursday at 12 PM? I'll hold it, and lock it in at
-   10 PM tonight. Want to change it?" (Spoken lines stay short and plain.)
+   pebbles say "You and Frankie can do Thursday at 12 PM. I'll hold it, and lock it in at
+   10 PM tonight. Want to change it?" (Frankie's Dot: "You and Mayo can do ...") (Spoken lines stay short and plain.)
    keep -> kept (both kept = confirmed now). Silence -> confirmed at the
    deadline (10 PM ET, or 11:59 PM if held at/after 10 PM; 30 min before it starts if sooner).
    change + reason ("not thursday, something later") -> hard constraints
@@ -40,7 +40,7 @@ from pathlib import Path
 import holds
 from agents import fmt, negotiate
 from lengths import fix_text
-from privacy import Neutral, both
+from privacy import Neutral
 from book import book
 from constraints import AT, describe, followed, merge, parse_change, spoken, why_not
 from calendar_slots import (ORDER, SETTINGS, WINDOWS, at, candidates, fallback_note, free_slots,
@@ -204,8 +204,8 @@ class Session:
 
     def negotiate_first(self):
         """Dots: no question up front. Plan, then the agents pick a slot from both calendars
-        right away (habits stand in for answers), then both Dots get "How about ...? Want to
-        change it?". Changes loop through advance() -> change() as usual."""
+        right away (habits stand in for answers), then both Dots get "You and <the other> can do ...
+        Want to change it?". Changes loop through advance() -> change() as usual."""
         self.start(ask=False)
         if self.state == "failed":
             return
@@ -405,15 +405,15 @@ class Session:
         return f" ({kind}, {'; '.join(f'{who}: {x}' for who, x in notes.items())})"
 
     def proposal_line(self, p, t):
-        """What one pebble says, plain about any fallback. Short: it is spoken out loud."""
-        q = f"how about {spoken_when(t, datetime.now(TZ).date())}?"
+        """What one pebble says, plain about any fallback. Short: it is spoken out loud.
+        "You and <the other person> can do <day> at <time>." on each Dot."""
+        other = next((x["name"] for x in self.people if x["name"] != p["name"]), "your friend")
+        q = f"you and {other} can do {spoken_when(t, datetime.now(TZ).date())}."
         choice = self.answers.get(p["name"], {}).get("choice")
         note = self.notes.get(t, {}).get(p["name"])
         if note and note.startswith("nothing worked"):
             lead = f"Nothing worked {AT.get(choice, 'then')} on {t:%A}. {q[0].upper() + q[1:]}"
-        elif note in ("the other person's pick", "middle ground"):
-            lead = both(q)  # never reveal what the other person picked
-        else:
+        else:  # a compromise reads the same: never reveal what the other person picked
             lead = q[0].upper() + q[1:]
         return lead
 

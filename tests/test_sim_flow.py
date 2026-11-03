@@ -30,7 +30,7 @@ for _ in range(50):
 assert ran == [("negotiate_first",)], ran
 
 # a time is pencilled in and both Dots are asked to keep it or change it
-s._p = {"state": "pencilled_in", "questions": {d: {"say": "How about Tuesday at 7:30 PM? Want to change it?", "kind": "confirm"}
+s._p = {"state": "pencilled_in", "questions": {d: {"say": "You and Frankie can do Tuesday at 7:30 PM. Want to change it?", "kind": "confirm"}
                                                for d in sim.DEV.values()},
         "speak": {}, "hold": None}
 s.s.state = "pencilled_in"

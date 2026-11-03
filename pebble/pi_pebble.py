@@ -10,11 +10,15 @@ Then poll GET /sessions/<id> and show it on the LED:
   dim white        = at rest (no session)
   bright white     = tapped / paired (and while the connected line plays), or this owner has
                      answered and it waits on the other person
-  yellow breathing = the agents are deciding (picking or re-picking a time)
+  yellow breathing = the agents are deciding (picking or re-picking a time), and from mic off
+                     until the Dot answers (speech to text, the agents thinking)
   orange breathing = the agents are done: a time is waiting for this owner's answer (bright orange
-                     in and out, PEBBLE_ORANGE, default 255,90,0; back to it after the Dot says the time)
+                     in and out; back to it after the Dot says the time)
   blue             = the Dot (the AI agent) is talking
-  solid yellow     = the mic is on (recording)
+  solid yellow     = the mic is on (recording), the whole time the owner talks
+Colours on the Pi's LED: its green die is much brighter than its red one, so red + green at full
+(255,255,0) reads green, not yellow. The Pi mixes yellow as 255,90,0 (PEBBLE_YELLOW) and orange as
+255,32,0 (PEBBLE_ORANGE). The UNO Q (unoq_dot.py imports this file) keeps 255,255,0 and 255,90,0.
   green            = booked by both (held 10 s, PEBBLE_GREEN_S, then dim white)
 Announce: when a time is ready the Dot says nothing on its own; it says the time on the next
 tap (magnet) or FSR press (PEBBLE_ANNOUNCE=tap, the default). After the owner has answered once,
@@ -98,10 +102,20 @@ ASR_MODEL = "muse-voice-transcribe-1.0"
 TTS = os.environ.get("PEBBLE_TTS", "mms").lower()  # mms (falls back to espeak) | espeak
 MMS_ID = "facebook/mms-tts-eng"
 
-WHITE, DIM_WHITE, YELLOW, BLUE, GREEN, OFF = (1, 1, 1), (DIM, DIM, DIM), (1, 1, 0), (0, 0, 1), (0, 1, 0), (0, 0, 0)
-# Orange on a common-cathode RGB LED: red full, green about a third. The green die is several times
-# brighter per mA than the red one, so 255,90,0 reads orange (255,255,0 is the yellow). 0..255 each.
-ORANGE = tuple(int(v) / 255 for v in os.environ.get("PEBBLE_ORANGE", "255,90,0").split(","))
+
+
+def rgb_env(name, default):
+    """An "r,g,b" (0..255 each) env value as gpiozero's 0..1 tuple."""
+    return tuple(int(v) / 255 for v in os.environ.get(name, default).split(","))
+
+
+# The green die is several times brighter per mA than the red one. On the Pi's LED, 255,255,0 reads
+# green and 255,90,0 reads yellow, so the Pi mixes yellow and orange with less green. The UNO Q's
+# LED (unoq_dot.py imports this file, so __name__ isn't "__main__") keeps 255,255,0 and 255,90,0.
+PI_LED = __name__ == "__main__"
+WHITE, DIM_WHITE, BLUE, GREEN, OFF = (1, 1, 1), (DIM, DIM, DIM), (0, 0, 1), (0, 1, 0), (0, 0, 0)
+YELLOW = rgb_env("PEBBLE_YELLOW", "255,90,0" if PI_LED else "255,255,0")
+ORANGE = rgb_env("PEBBLE_ORANGE", "255,32,0" if PI_LED else "255,90,0")
 BREATHE = "yellow breathing"  # the agents are deciding
 ORANGE_BREATHE = "orange breathing"  # a time is waiting for this owner's answer
 BREATHING = {BREATHE: YELLOW, ORANGE_BREATHE: ORANGE}  # breathing state -> its colour
@@ -115,7 +129,7 @@ led = fsr = hall = None
 now = {"sid": None, "heard": None, "answered": None, "pending": None, "engaged": False, "green_until": 0,
        "rec": None, "wav": None, "busy": False, "led": None, "gen": 0, "round": 0, "talk_until": 0,
        "mode": "ready", "speaking": False, "hush": None, "player": [], "edge": -1.0, "rec_t0": 0,
-       "booking": False, "greeting": False, "others_asked": False}
+       "booking": False, "greeting": False, "others_asked": False, "thinking": False}
 ready_pcm = {}  # text -> MMS PCM made at startup (the connected line), played without waiting on the model
 speaking = threading.Lock()
 led_lock = threading.Lock()
@@ -135,6 +149,8 @@ def wanted():
         return WHITE  # "Dots connected!": stays bright white while it plays, then breathes
     if now["speaking"] or now["booking"]:
         return BLUE  # talking (or about to say it's booked)
+    if now["thinking"]:
+        return BREATHE  # mic off: speech to text and the agents are working on the answer
     if now["sid"]:
         if now["mode"] == "talking":
             return BREATHE
@@ -596,6 +612,7 @@ def mic_off(auto=False):
         rec.wait()
         secs = time.monotonic() - now["rec_t0"]
         now["rec"] = None
+        now["thinking"] = True  # yellow breathing until the Dot answers (or hears nothing)
     print(f"MIC OFF - {secs:.1f} s{' (auto-stop)' if auto else ''}, sending", flush=True)
     refresh()
     try:
@@ -610,10 +627,21 @@ def heard_nothing(why):
     """Nothing heard or understood: say nothing, send nothing more; the LED is already back to
     what it showed before the mic went on (e.g. bright white with a time waiting)."""
     print(f"MIC heard nothing, waiting ({why})", flush=True)
+    now["thinking"] = False
     refresh()
 
 
 def reply(wav):
+    """Mic off -> yellow breathing while the clip is transcribed and answered, then the reply."""
+    try:
+        answer_clip(wav)
+    finally:
+        if now["thinking"]:
+            now["thinking"] = False
+            refresh()
+
+
+def answer_clip(wav):
     if len(wav) < 16000:  # under ~0.5 s: a bump, not speech
         return heard_nothing("clip too short, nothing sent")
     t0 = time.monotonic()
@@ -627,6 +655,7 @@ def reply(wav):
     if not re.search(r"[A-Za-z0-9]", text or ""):
         return heard_nothing("no words, nothing sent")
     if not now["sid"]:
+        now["thinking"] = False
         return say("Touch Dots with a friend first.")
     t0 = time.monotonic()
     r = call(f"/sessions/{now['sid']}/answer", {"device_id": DEVICE, "answer": text, "via": "voice",
@@ -640,6 +669,7 @@ def reply(wav):
         now.update(answered=now["pending"], pending=None, engaged=True)
         if r.get("mapped_to") == "change":
             now["mode"] = "talking"  # both agents go back to deciding (breathing once the reply is said)
+    now["thinking"] = False  # blue while it says the reply, then the session's colour
     say(line)
 
 

@@ -39,7 +39,7 @@ assert uq.LONG_PRESS_S == 0.3
 assert uq.LED_ORDER == "grb" and uq.ANSWER_SECOND, "defaults: R/G swapped on Frankie's LED, Frankie answers second"
 uq.LED_ORDER = "rgb"  # the colour checks below read board.writes as (r, g, b); the remap has its own test
 REAL_PRINT = print
-TIME = ("q1", "How about Friday at 6 PM? Want to change it?")
+TIME = ("q1", "You and Frankie can do Friday at 6 PM. Want to change it?")
 out, said, sent, leds = [], [], [], []
 
 
@@ -204,7 +204,7 @@ try:
     # ---- turn order + booked: Frankie yellow while Mayo's answer waits, then orange; its own
     # keep ends green, then dim white after GREEN_S (10 s by default) ---------------------------
     board = setup(pending=None, heard=None)
-    say_ = "How about Friday at 6 PM? Want to change it?"
+    say_ = "You and Frankie can do Friday at 6 PM. Want to change it?"
     snap = {"state": "pencilled_in", "change_round": 0, "busy": False,
             "questions": {"pebble-mayo": {"say": say_}, pb.DEVICE: {"say": say_}}}
 

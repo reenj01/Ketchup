@@ -105,7 +105,7 @@ def scene(say_connected):
                   led=None, gen=0, round=0, talk_until=0, mode="ready", speaking=False, hush=None, player=[],
                   edge=-1.0, busy=False, booking=False, greeting=False)
     ready = {"state": "pencilled_in", "change_round": 0,
-             "questions": {pb.DEVICE: {"say": "How about Tuesday at 6 PM? Want to change it?"}}}
+             "questions": {pb.DEVICE: {"say": "You and Frankie can do Tuesday at 6 PM. Want to change it?"}}}
     polls = [{"state": "proposing", "busy": True, "change_round": 0}] * 2 + [ready] * 5
     pb.call = lambda path, body=None: {"status": "paired", "session_id": "s1"} if path == "/tap" else polls.pop(0)
     t0 = time.monotonic()
@@ -135,7 +135,7 @@ assert leds == ["dim white", "bright white", "yellow breathing", "orange breathi
                 "blue (talking)", "orange breathing"], leds
 assert during[0] == "bright white" and during[1] == "blue (talking)", during  # the line: white; the time: blue
 assert n_leds[0] == 2, (n_leds, leds)  # while the line played the LED stayed bright white; breathing came after
-assert said[-1][1] == "How about Tuesday at 6 PM? Want to change it?", said
+assert said[-1][1] == "You and Frankie can do Tuesday at 6 PM. Want to change it?", said
 print("OK Mayo's Dot:", " -> ".join(leds), "| said:", [x for _, x in said])
 
 leds, quiet, said, _, during, _ = scene(False)
@@ -187,9 +187,9 @@ os.environ["FAKE_ESPEAK_LOG"] = str(STUBS / "espeak.log")
 pb.mms.clear()
 pb.print = lambda *a, **k: None
 pb.say(LINE)
-pb.say("How about Tuesday at 6 PM?")
+pb.say("You and Frankie can do Tuesday at 6 PM.")
 pb.print = print
 calls = (STUBS / "espeak.log").read_text().splitlines()
-assert calls == ["-s 130 --stdout " + LINE, "--stdout How about Tuesday at 6 PM?"], calls
+assert calls == ["-s 130 --stdout " + LINE, "--stdout You and Franky can do Tuesday at 6 PM."], calls  # said "Franky"
 print("OK espeak fallback:", calls)
 print("test_dot_connected: OK")

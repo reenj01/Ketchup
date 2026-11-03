@@ -10,7 +10,7 @@ Both pebbles are the same: mic + speaker. They:
 2. Right after pairing the agents pick a time from both calendars (no question
    first). Poll GET /sessions/<id>: state "paired"/"proposing" = agents talking;
    "questions" then holds, per device, the time to say out loud ("say"):
-   "How about Tuesday at 7 PM? ... Want to change it?". While the agents hold the
+   "You and Frankie can do Tuesday at 7 PM. ... Want to change it?". While the agents hold the
    session lock the poll answers at once with {"busy": true} and no questions.
 3. POST /sessions/<id>/answer {"device_id": ..., "answer": "<voice transcript>"}
    Muse Spark Open maps it to keep/change (with the reason: "no, pick a time

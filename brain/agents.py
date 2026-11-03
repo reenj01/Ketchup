@@ -42,7 +42,7 @@ Rules, most important first:
   Accept it, or counter with a slot nobody offered yet.
 - An answer marked "no answer" was NOT said; never claim they asked for it.
 - If you pick a fallback slot, say so plainly, e.g. "Nothing worked at noon,
-  so how about <time>?" Use the real slot time.
+  so I picked <time>." Use the real slot time. Never start with "How about".
 - Backup: when you propose or counter, name a backup too. When you accept,
   keep the other agent's backup if it works for {name}, or name a better one
   nobody offered as a pick. Mention the backup briefly in your reason.

@@ -47,12 +47,31 @@ made = datetime(2026, 11, 2, 10, 0, tzinfo=TZ)
 assert spoken_deadline(datetime(2026, 11, 2, 22, 0, tzinfo=TZ), made) == "at 10 PM tonight"
 assert spoken_deadline(datetime(2026, 11, 2, 11, 30, tzinfo=TZ), made) == "at 11:30 AM today"
 for line in (Neutral("Mayo").spoken("Friday at 10:30 AM"), Neutral("Mayo", "backup").spoken("Friday at 10:30 AM"),
-             f"How about Tuesday at 6 PM? I'll hold it, and lock it in {spoken_deadline(made, made)}. "
+             f"You and Frankie can do Tuesday at 6 PM. I'll hold it, and lock it in {spoken_deadline(made, made)}. "
              "Want to change it?"):
     sentences = [s for s in re.split(r"(?<=[.?!])\s+", line) if s]
     assert len(sentences) <= 3 and all(len(s.split()) <= 12 for s in sentences), line
     assert not re.search(r"pencil|tentative|confirmed|:\d\d [AP]M ET", line), line
 print("OK spoken lines: short, plain")
+
+# ---- the time each Dot proposes: "You and <the other person> can do ..." (no "How about") ----------
+import flow  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+t = datetime(2026, 11, 6, 18, 30, tzinfo=TZ)
+fake = SimpleNamespace(people=[{"name": "Mayo", "device_id": "pebble-mayo"}, {"name": "Frankie", "device_id": "pebble-frankie"}],
+                       answers={"Mayo": {"choice": "night"}}, notes={})
+when = spoken_when(t, datetime.now(TZ).date())
+line = flow.Session.proposal_line(fake, fake.people[0], t)
+assert line == f"You and Frankie can do {when}.", line
+assert flow.Session.proposal_line(fake, fake.people[1], t) == f"You and Mayo can do {when}."
+fake.notes = {t: {"Mayo": "nothing worked at night", "Frankie": "middle ground"}}
+assert flow.Session.proposal_line(fake, fake.people[0], t) == f"Nothing worked at night on Friday. You and Frankie can do {when}."
+assert flow.Session.proposal_line(fake, fake.people[1], t) == f"You and Mayo can do {when}."  # never says whose pick
+assert Neutral("Frankie").spoken("Friday at 6:30 PM") == "Frankie wants a different time. You and Frankie can do Friday at 6:30 PM."
+full = "You and Frankie can do Friday at 6:30 PM. I'll hold it, and lock it in at 10 PM tonight. Want to change it?"
+assert pb.mms_text(full) == "you and frankey can do friday at six thirty pee em. i'll hold it, and lock it in at ten pee em this evening. want to change it?", pb.mms_text(full)
+assert pb.say_as(full).startswith("You and Franky can do Friday")
+print("OK proposals: 'You and Frankie can do ...' / 'You and Mayo can do ...', said 'Franky'")
 
 # "Dots" is respelled so MMS doesn't blur "both Dots ask" into "both Dutch"
 assert pb.mms_text("Both Dots ask: Morning?") == "both dotts ask, morning?", pb.mms_text("Both Dots ask: Morning?")

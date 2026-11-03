@@ -98,7 +98,7 @@ class Fake:
     hold = {"minutes": 45, "title": "Mayo + Frankie: catch up", "start": START}
 
     def public(self):
-        return {"state": self.state, "questions": {"pebble-mayo": {"say": "How about..."}},
+        return {"state": self.state, "questions": {"pebble-mayo": {"say": "You and Frankie can do..."}},
                 "proposal": {"slot": "Fri Nov 6, 6:00 PM ET", "start": START},
                 "hold": {"status": "tentative", "deadline_text": "tonight at 10 PM"}}
 

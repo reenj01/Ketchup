@@ -1,8 +1,8 @@
 """The physical Dots' LED flow and mic toggle (pi_pebble.py, also run by the UNO Q's unoq_dot.py):
 dim white at rest -> bright white on the tap -> yellow breathing while the agents decide ->
 orange breathing while a time waits for the owner -> blue while the Dot talks (then orange again) -> solid yellow while the mic is
-on (press once = on, press again = off and send; 50 ms debounce; auto-stop) -> yellow breathing
-again after a change -> green when booked, then dim white. A press while the Dot talks stops the
+on (press once = on, press again = off and send; 50 ms debounce; auto-stop) -> yellow breathing from mic off
+until the Dot answers (never green, never solid yellow) -> yellow breathing again after a change -> green when booked, then dim white. A press while the Dot talks stops the
 voice and opens the mic. MMS silence trimming. Also: the tap server answers polls while the agents
 hold the session, and flow.negotiate_first asks the owners nothing before the agents pick a time.
 Server, LED, mic (arecord) and speaker (aplay/espeak) are stubbed: no network, hardware or models."""
@@ -32,6 +32,22 @@ import unoq_dot  # noqa: E402
 unoq_dot.LED_ORDER = "rgb"  # board.writes read as (r, g, b) here; the grb remap is in test_unoq_press.py
 
 assert not hasattr(pb, "RED"), "red is gone"
+# imported (as unoq_dot does): the UNO Q's mix. Run as the Pi's script: less green, since the Pi LED's
+# green die swamps red (255,255,0 read green there while the mic was on).
+assert (pb.YELLOW, pb.ORANGE) == ((1, 1, 0), (1, 90 / 255, 0)), (pb.YELLOW, pb.ORANGE)
+import subprocess  # noqa: E402
+FAKE_GPIO = STUBS / "gpio"
+FAKE_GPIO.mkdir()
+(FAKE_GPIO / "gpiozero.py").write_text(  # main() builds the LED first: print the Pi's colours and stop
+    "import sys\nButton = None\nclass RGBLED:\n    def __init__(self, **k):\n        g = sys._getframe(1).f_globals\n"
+    "        print([round(v * 255) for c in (g['YELLOW'], g['ORANGE']) for v in c])\n        raise SystemExit(0)\n")
+pi = subprocess.run([sys.executable, str(ROOT / "pebble" / "pi_pebble.py")], capture_output=True, text=True,
+                    env={**os.environ, "PYTHONPATH": str(FAKE_GPIO)}, timeout=60)
+assert pi.stdout.strip().splitlines()[-1] == "[255, 90, 0, 255, 32, 0]", (pi.stdout, pi.stderr[-500:])
+pi = subprocess.run([sys.executable, str(ROOT / "pebble" / "pi_pebble.py")], capture_output=True, text=True,
+                    env={**os.environ, "PYTHONPATH": str(FAKE_GPIO), "PEBBLE_YELLOW": "255,120,0"}, timeout=60)
+assert pi.stdout.strip().splitlines()[-1] == "[255, 120, 0, 255, 32, 0]", pi.stdout
+print("OK Pi colours: yellow 255,90,0 and orange 255,32,0 on the Pi (PEBBLE_YELLOW / PEBBLE_ORANGE); UNO Q keeps 255,255,0 / 255,90,0")
 assert abs(pb.breath_level(0) - 1) < 1e-9 and abs(pb.breath_level(pb.BREATHE_S / 2) - 0.1) < 1e-9
 assert all(0.1 - 1e-9 <= pb.breath_level(t / 10) <= 1 + 1e-9 for t in range(100))
 REAL_SAY, REAL_PRINT = pb.say, print
@@ -105,13 +121,13 @@ def flow(board=None):
         pb.refresh()  # start: dim white
         pb.on_tap()  # bright white, then paired: yellow breathing
         for reply in [{"state": "proposing", "busy": True, "change_round": 0},
-                      q("How about Tuesday at 6 PM? Want to change it?")]:
+                      q("You and Frankie can do Tuesday at 6 PM. Want to change it?")]:
             polls.append(reply)
             pb.tick()
         assert said == [], "not said until the owner taps or presses"
         press()  # a new time: this press hears it (blue)
         wait_for(lambda: said and not pb.now["speaking"])
-        assert said == ["How about Tuesday at 6 PM? Want to change it?"], said
+        assert said == ["You and Frankie can do Tuesday at 6 PM. Want to change it?"], said
         pb.on_press()  # mic ON, at once
         assert pb.now["rec"], "mic on from the first edge"
         pb.on_release(); time.sleep(0.01); pb.on_press(); time.sleep(0.01); pb.on_release()  # bounce: ignored
@@ -121,11 +137,11 @@ def flow(board=None):
         assert not pb.now["rec"] and mics == ["MIC ON", "MIC OFF"], mics
         wait_for(lambda: len(said) == 2 and not pb.now["speaking"])
         for reply in [{"state": "pencilled_in", "change_round": 1, "questions": {}},  # backup: instant
-                      q("You said at night. How about Wednesday at 8 PM? Want to change it?", 1)]:
+                      q("You said at night. You and Frankie can do Wednesday at 8 PM. Want to change it?", 1)]:
             polls.append(reply)
             pb.tick()
         time.sleep(0.35)
-        polls.append(q("You said at night. How about Wednesday at 8 PM? Want to change it?", 1))
+        polls.append(q("You said at night. You and Frankie can do Wednesday at 8 PM. Want to change it?", 1))
         pb.tick()  # engaged: said as soon as it is ready
         polls.append({"state": "booked", "change_round": 1, "speak": {pb.DEVICE: "Plan booked with Frankie."}})
         pb.tick()
@@ -139,11 +155,11 @@ def flow(board=None):
 
 O = "orange breathing"  # a time waits for this owner's answer
 want = ["dim white", "bright white", "yellow breathing", O, "blue (talking)", O,
-        "yellow (mic on)", O, "blue (talking)", "yellow breathing", O,
+        "yellow (mic on)", "yellow breathing", "blue (talking)", "yellow breathing", O,
         "blue (talking)", O, "blue (talking)", "green", "dim white"]
 leds, mics, said = flow()
 assert leds == want, leds
-assert said[1:] == ["Got it, I'll look at night.", "You said at night. How about Wednesday at 8 PM? Want to change it?",
+assert said[1:] == ["Got it, I'll look at night.", "You said at night. You and Frankie can do Wednesday at 8 PM. Want to change it?",
                     "Plan booked with Frankie."], said
 print("OK Pi LED flow:", " -> ".join(leds))
 print("OK mic toggle:", mics, "(the bounce inside the press made no extra toggle)")
@@ -152,7 +168,7 @@ board = unoq_dot.FakeBoard()
 leds, _, _ = flow(board)
 assert leds == want, leds
 breaths = [w for w in board.writes if w[0] == "breathe"]
-assert breaths.count(("breathe", 3000, 255, 255, 0)) == 2 and breaths.count(("breathe", 3000, 255, 90, 0)) == 5, breaths
+assert breaths.count(("breathe", 3000, 255, 255, 0)) == 3 and breaths.count(("breathe", 3000, 255, 90, 0)) == 4, breaths
 assert len(breaths) == 7, breaths
 assert board.writes[-1] == (31, 31, 31) and (255, 255, 0) in board.writes and (0, 0, 255) in board.writes
 assert (0, 255, 0) in board.writes and (255, 255, 255) in board.writes

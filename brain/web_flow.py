@@ -410,12 +410,12 @@ class WebSession:
             t, w = slot
             if me is None:
                 return self.post("middle", "system", f"Only one time fits: {fmt(t)}.")
-            verb = {"propose": "How about", "accept": "Deal:", "counter": "What about"}[r["decision"]]
+            other = next(p["name"] for p in self.people if p["name"] != me["name"])
             b = r.get("backup") and cands[r["backup"] - 1][0]
             back = f" Backup: {fmt(b)}." if b else ""
-            self.post("middle", self.key_of(me), (f"{verb} {fmt(t)} [{w}]?{back} {r['reason']}"
-                      if r["decision"] != "accept" else f"{verb} {fmt(t)}.{back} {r['reason']}").strip(),
-                      decision=r["decision"])
+            line = {"propose": f"You and {other} can do {fmt(t)} [{w}].", "counter": f"What about {fmt(t)} [{w}]?",
+                    "accept": f"Deal: {fmt(t)}."}[r["decision"]]
+            self.post("middle", self.key_of(me), f"{line}{back} {r['reason']}".strip(), decision=r["decision"])
         res = negotiate(mayo, frankie, self.plan["activity"], cands, busy, self.minutes, know,
                         log=lambda *_: None, notes=label, on_turn=on_turn,
                         context_note=note + (f" There is no {self.relaxed} time free for both in the search range, so the options are other times of day; say so." if self.relaxed else ""),
@@ -491,7 +491,7 @@ class WebSession:
             note = " (Dry run: not on your real calendar.)" if self.dry_run else ""
             head = (lead or {}).get(k, "")
             head = (f"{head.text(when)} " if isinstance(head, Neutral)
-                    else f"{head}{self.name(self.other(k))} and you are free on {when}. ")
+                    else f"{head}You and {self.name(self.other(k))} can do {when}. ")
             self.post(k, "agent", f"{head}"
                       f"I've pencilled it in your calendar (tentative).{note} If I don't hear from you, "
                       f"it's confirmed {dt}. Do you want a different day or time?", kind="hold")
