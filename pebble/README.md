@@ -13,7 +13,7 @@ LED: dim white = idle; bright white = tapped, or you have answered and it waits 
 person; yellow breathing in and out = the agents are deciding (right after the tap, and again
 after anyone asks for a change); orange breathing in and out = the agents are done and a time is
 waiting for your answer (bright orange, `PEBBLE_ORANGE`, default `255,90,0`); blue = the Dot is talking; solid bright yellow = the mic is on; green =
-booked on both calendars (60 s, then dim white). No red.
+booked on both calendars (10 s, `PEBBLE_GREEN_S`, then dim white). No red.
 
 There is no question up front: tap both Dots within 5 s (the server's
 `KETCHUP_PAIR_WINDOW_S`) and the agents pick a day and time from both calendars in the
@@ -58,7 +58,7 @@ The first run downloads the MMS model (about 145 MB) from Hugging Face. The pebb
 prints `VOICE Meta MMS-TTS ready` once it has loaded.
 
 Optional: `PEBBLE_AUDIO` (ALSA device), `PEBBLE_PHRASE` (the plan, e.g. "let's
-catch up Thursday"), `PEBBLE_GREEN_S` (green hold, default 60), `PEBBLE_TTS=espeak`
+catch up Thursday"), `PEBBLE_GREEN_S` (green hold, default 10), `PEBBLE_TTS=espeak`
 (skip MMS and use espeak only), `PEBBLE_BREATHE_S` (one breath, default 3),
 `PEBBLE_ANNOUNCE=auto` (speak every new time without waiting for a tap/press; default `tap`),
 `PEBBLE_SAY_CONNECTED` (`1` = say the connected line on pairing; default `1` for mayo, `0`

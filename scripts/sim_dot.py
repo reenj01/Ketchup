@@ -120,7 +120,7 @@ def main():
     ap.add_argument("--say", action="append", default=[], help="answers in order; 'keep' after they run out")
     ap.add_argument("--wait", type=float, default=0, help="seconds to wait after hearing a time, before answering")
     ap.add_argument("--at", type=float, default=0, help="epoch time to tap the magnet (both Dots within 5 s)")
-    ap.add_argument("--green-s", default="6", help="how long green holds (Dot default 60)")
+    ap.add_argument("--green-s", default="10", help="how long green holds (Dot default 10)")
     ap.add_argument("--router", action="store_true", help="unoq: go through arduino-router-bridge + a fake router")
     ap.add_argument("--old-sketch", action="store_true", help="unoq: sketch without breathe_rgb(), Linux steps set_led")
     ap.add_argument("--long-press-change", type=int, default=0,
@@ -187,6 +187,7 @@ def main():
     if unoq:  # no mic on the UNO Q
         args.say, heard[:] = [], []
     holds_, longs, shorts, cut = 0, 0, 0, not (args.interrupt and not unoq)
+    waited = set()  # UNO Q: the LED names seen while the other person's answer still waited
     if args.walk_away:
         print(f"== {args.owner}: walks away", flush=True)
         deadline = time.monotonic() + 120
@@ -223,6 +224,12 @@ def main():
             t_end = time.monotonic() + 20
             while (pb.now["heard"] != p or pb.speaking.locked()) and pb.now["pending"] == p \
                     and time.monotonic() < t_end:
+                time.sleep(0.1)
+            t_end = time.monotonic() + 120  # Frankie answers after Mayo: yellow until Mayo has
+            while not unoq_dot.time_waiting() and pb.now["pending"] == p and pb.now["sid"] \
+                    and time.monotonic() < t_end:
+                if unoq_dot.other_first():
+                    waited.add(pb.NAMES[pb.wanted()])
                 time.sleep(0.1)
             time.sleep(args.wait)
             if pb.now["pending"] != p or not pb.now["sid"]:
@@ -296,7 +303,13 @@ def main():
         answers = ["yellow flash (find another time)", "yellow breathing", O] * longs + ["green flash (keep)"]
     else:
         answers = [*(["yellow (mic on)"] if holds_ else []), *(["yellow breathing"] if args.say else [])]
-    want = ["dim white", "bright white", "yellow breathing", O, "blue (talking)", *answers, "green", "dim white"]
+    if unoq:  # yellow until Mayo has answered (a tap to hear it is blue), then orange, then the press
+        want = ["dim white", "bright white", "yellow breathing", "blue (talking)", O, *answers, "green", "dim white"]
+        print("UNO Q LED while the other person's answer waited:", ", ".join(sorted(waited)) or "never waited")
+    else:
+        want = ["dim white", "bright white", "yellow breathing", O, "blue (talking)", *answers, "green", "dim white"]
+    early_ok = early in ([*want[:3]], [*want[:3], O]) if unoq else early == [*want[:3], O]
+    waited_ok = not unoq or waited <= {"yellow breathing", "blue (talking)"}
     it = iter(seq)
     # one press = one toggle, bounce and all, on the Pi; the UNO Q: one press line per answer, no mic
     toggles = (tee.mics == ["LONG PRESS: find another time"] * longs + ["SHORT PRESS: keep"] * shorts
@@ -311,7 +324,7 @@ def main():
         print(f'heard "{args.expect_say}":', heard_it)
     ok = all(w in it for w in want) and "red" not in seq and not pb.now["rec"] and toggles \
         and not (unoq and arecords) and heard_it \
-        and before == want_before and early == ["dim white", "bright white", "yellow breathing", O] \
+        and before == want_before and early_ok and waited_ok \
         and bool(slow) == pb.SAY_CONNECTED and all(x.endswith("--stdout " + pb.CONNECTED_LINE) for x in slow) \
         and pb.CONNECTED_LINE == "Dots connected. We will get back to you once we are done."
     print("ALL GOOD" if ok else "SOMETHING FAILED", flush=True)

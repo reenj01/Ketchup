@@ -27,7 +27,8 @@ for name, body in {
     (STUBS / name).chmod(0o755)
 os.environ.update(PEBBLE_TTS="espeak", PEBBLE_LONG_PRESS_S="0.3", PEBBLE_GREEN_S="0.3",
                   PATH=f"{STUBS}:{os.environ['PATH']}")
-os.environ.pop("PEBBLE_ID", None)
+for k in ("PEBBLE_ID", "PEBBLE_LED_ORDER", "PEBBLE_ANSWER_SECOND"):
+    os.environ.pop(k, None)
 sys.path.insert(0, str(ROOT / "pebble"))
 sys.path.insert(0, str(ROOT / "pebble" / "unoq"))
 import unoq_dot as uq  # noqa: E402  (first: it sets PEBBLE_ID=frankie before pi_pebble reads it)
@@ -35,6 +36,8 @@ pb = uq.pb
 
 assert pb.OWNER == "frankie" and pb.DEVICE == "pebble-frankie", "IDs stay frankie"
 assert uq.LONG_PRESS_S == 0.3
+assert uq.LED_ORDER == "grb" and uq.ANSWER_SECOND, "defaults: R/G swapped on Frankie's LED, Frankie answers second"
+uq.LED_ORDER = "rgb"  # the colour checks below read board.writes as (r, g, b); the remap has its own test
 REAL_PRINT = print
 TIME = ("q1", "How about Friday at 6 PM? Want to change it?")
 out, said, sent, leds = [], [], [], []
@@ -51,7 +54,7 @@ def setup(pending=TIME, heard=TIME, answer=None, mode="ready"):
     out.clear(), said.clear(), sent.clear()
     pb.now.update(sid="s1", heard=heard, answered=None, pending=pending, engaged=False, green_until=0, rec=None,
                   led=None, gen=0, round=0, talk_until=0, mode=mode, speaking=False, hush=None, player=[],
-                  edge=-1.0, busy=False, booking=False, greeting=False)
+                  edge=-1.0, busy=False, booking=False, greeting=False, others_asked=False)
     uq.press.update(down=None, long=False, edge=-1.0, flash=None, flash_until=0.0)
     board = uq.FakeBoard()
     pb.led, pb.fsr = uq.BridgeLED(board), uq.BridgeFSR()
@@ -182,6 +185,72 @@ try:
     print("OK UNO Q poll loop: short press -> keep; long press -> find another time")
     assert not (STUBS / "arecord.calls").exists(), "arecord ran on the UNO Q"
     print("OK UNO Q: arecord never ran")
+
+    # ---- LED order: Frankie's LED has red and green on each other's pins (default grb) ---------
+    board = uq.FakeBoard()
+    led = uq.BridgeLED(board)
+    uq.LED_ORDER = "grb"
+    led.value = pb.GREEN
+    led.breathe(3.0, pb.ORANGE)
+    led.value, led.value, led.value = pb.YELLOW, pb.WHITE, pb.BLUE
+    assert board.writes == [(255, 0, 0), ("breathe", 3000, 90, 255, 0), (255, 255, 0), (255, 255, 255), (0, 0, 255)], \
+        board.writes
+    uq.LED_ORDER = "rgb"
+    led.value = pb.GREEN
+    assert board.writes[-1] == (0, 255, 0) and led.value == pb.GREEN
+    print("OK UNO Q LED order: grb (default) sends green on D3 and orange as (90, 255, 0); "
+          "yellow / white / blue unchanged; rgb sends them as asked")
+
+    # ---- turn order + booked: Frankie yellow while Mayo's answer waits, then orange; its own
+    # keep ends green, then dim white after GREEN_S (10 s by default) ---------------------------
+    board = setup(pending=None, heard=None)
+    say_ = "How about Friday at 6 PM? Want to change it?"
+    snap = {"state": "pencilled_in", "change_round": 0, "busy": False,
+            "questions": {"pebble-mayo": {"say": say_}, pb.DEVICE: {"say": say_}}}
+
+    def server(path, body=None):
+        sent.append((path, body))
+        if path.endswith("/answer"):
+            snap["questions"].pop(pb.DEVICE, None)
+            snap.update(state="booked", speak={pb.DEVICE: "Booked: Friday at 6 PM, on both calendars."})
+            return {"ok": True, "mapped_to": "keep", "say": "Great, Friday at 6 PM it is.", "state": "booked"}
+        return dict(snap)
+    pb.call = server
+    pb.tick()
+    assert pb.now["pending"] == (0, say_) and pb.now["others_asked"] and leds[-1] == "yellow breathing", leds
+    assert board.writes[-1] == ("breathe", 3000, 255, 255, 0), board.writes
+    hold(0.1)
+    assert answers() == [] and any("waiting for the other person to answer first" in x for x in out), out
+    assert not any("flash" in x for x in leds), leds
+    print("OK UNO Q while Mayo's answer waits (Mayo orange): Frankie yellow breathing, press ignored, logged")
+    snap["questions"].pop("pebble-mayo")  # Mayo kept it
+    pb.tick()
+    assert leds[-1] == "orange breathing" and board.writes[-1] == ("breathe", 3000, 255, 90, 0), (leds, board.writes)
+    hold(0.1)
+    wait_for(lambda: said)
+    time.sleep(uq.FLASH_S + 0.1)
+    pb.GREEN_S = 10.0
+    t_book = time.monotonic()
+    pb.tick()  # booked: blue for the booking line, then green
+    assert pb.now["sid"] is None and leds[-1] == "green" and board.writes[-1] == (0, 255, 0), (leds, board.writes)
+    assert abs(pb.now["green_until"] - t_book - 10.0) < 0.5, pb.now["green_until"] - t_book
+    time.sleep(9.0)
+    pb.tick()
+    assert leds[-1] == "green", leds
+    time.sleep(1.3)
+    pb.tick()
+    seq = [c for c in leds if not c.startswith("green for")]
+    seq = [c for i, c in enumerate(seq) if i == 0 or seq[i - 1] != c]
+    assert seq == ["bright white", "yellow breathing", "orange breathing", "green flash (keep)",
+                   "bright white", "blue (talking)", "green", "dim white"], seq
+    assert board.writes[-1] == (31, 31, 31) and "red" not in " ".join(leds), board.writes
+    print("OK UNO Q Frankie's own keep:", " -> ".join(seq), "(green held 10 s)")
+    import subprocess
+    env = {k: v for k, v in os.environ.items() if k != "PEBBLE_GREEN_S"}
+    got = subprocess.run([sys.executable, "-c", "import pi_pebble; print(pi_pebble.GREEN_S)"], env=env,
+                         cwd=ROOT / "pebble", capture_output=True, text=True).stdout.strip()
+    assert got == "10.0", got
+    print("OK PEBBLE_GREEN_S default: 10 s (Pi and UNO Q)")
 
     # ---- hearing nothing (the Pi's mic; reply() lives in the shared pi_pebble.py) -------------
     pb.wanted = uq._wanted

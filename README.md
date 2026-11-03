@@ -51,7 +51,8 @@ log in or connect any account. The organizers allow mock data.
    other event, a time already offered is never offered again, lengths are multiples
    of 5 minutes (30 and 45 meet at 35).
 4. **Hear it.** When a time is ready the LED breathes bright orange in and out: a time is
-   waiting for your answer. Tap the Dot (or press the Pi's pressure sensor) and it says the
+   waiting for your answer. Frankie answers after Mayo, so Frankie's Dot keeps breathing yellow
+   while Mayo's is orange, and turns orange once Mayo has answered. Tap the Dot (or press the Pi's pressure sensor) and it says the
    time out loud.
 5. **Answer.** On Mayo's Pi Dot, press the pressure sensor (the LED turns yellow) and say
    "keep it" or what you want instead. Frankie's UNO Q Dot has no mic: a short press keeps the
@@ -61,7 +62,7 @@ log in or connect any account. The organizers allow mock data.
    until you like it. The other person only hears "Mayo would prefer a different day or
    time", never your words or reason.
 6. **Booked.** When both people say "keep it", the event goes on both calendars and the
-   LEDs turn green for 1 minute, then back to white. A held time also auto-confirms at
+   LEDs turn green for 10 seconds, then back to white. A held time also auto-confirms at
    10 PM ET (11:59 PM if made at or after 10 PM), or 30 minutes before the meeting if
    that's sooner.
 

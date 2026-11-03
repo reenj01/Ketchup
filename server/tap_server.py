@@ -166,6 +166,7 @@ def heard(s, device, text, via, data):
 
 
 LED_SEEN = {}  # device_id -> last LED line printed
+ANSWERS_SECOND = {"frankie"}  # the UNO Q Dot (no mic): yellow until the other owner answers (PEBBLE_ANSWER_SECOND)
 
 
 def dot_leds(snap):
@@ -177,9 +178,14 @@ def dot_leds(snap):
         if snap.get("busy") or st in ("paired", "proposing"):
             out[dev] = "yellow breathing (agents deciding)"
         elif st == "pencilled_in":
-            out[dev] = "orange breathing (time waiting for an answer)" if dev in q else "bright white (answered)"
+            if dev not in q:
+                out[dev] = "bright white (answered)"
+            elif DEVICES[dev] in ANSWERS_SECOND and any(d != dev for d in q):
+                out[dev] = "yellow breathing (waiting for the other person to answer first)"
+            else:
+                out[dev] = "orange breathing (time waiting for an answer)"
         elif st in ("booked", "agreed (dry run, not booked)"):
-            out[dev] = "green (booked)"
+            out[dev] = "green (booked, 10 s, then dim white)"
         else:
             out[dev] = "dim white"
     return out

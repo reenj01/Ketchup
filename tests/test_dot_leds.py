@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT / "pebble"))
 sys.path.insert(0, str(ROOT / "pebble" / "unoq"))
 import pi_pebble as pb  # noqa: E402
 import unoq_dot  # noqa: E402
+unoq_dot.LED_ORDER = "rgb"  # board.writes read as (r, g, b) here; the grb remap is in test_unoq_press.py
 
 assert not hasattr(pb, "RED"), "red is gone"
 assert abs(pb.breath_level(0) - 1) < 1e-9 and abs(pb.breath_level(pb.BREATHE_S / 2) - 0.1) < 1e-9

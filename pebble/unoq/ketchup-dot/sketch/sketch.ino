@@ -17,7 +17,8 @@
 // other person, yellow breathing = agents deciding, orange breathing = a time waits for the owner
 // (short press = keep, long press = find another time), blue = the Dot is talking,
 // a short green / yellow flash = a press counted (keep / another time),
-// green = booked (60 s, then dim white). No mic on the UNO Q.
+// green = booked (10 s, then dim white). No mic on the UNO Q. Colour order: unoq_dot.py
+// remaps (r, g, b) to these pins with PEBBLE_LED_ORDER (default grb: red and green legs swapped).
 //   get_inputs()      -> taps * 2 + pressed. taps = Hall taps counted since boot (debounced, never
 //                        missed between polls); pressed = 1 while the FSR is held (debounced)
 // Both use provide_safe: they run in loop() context, so analogWrite/digitalRead are safe there.

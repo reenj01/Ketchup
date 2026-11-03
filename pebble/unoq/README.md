@@ -23,7 +23,7 @@ LED          ◄─ set_led()  ◄─Bridge──┘        │
 |---|---|---|
 | Hall sensor KY-003 | D2 | Signal pin. Active LOW. Internal pull-up is on. Power it from 5V/3.3V and GND |
 | FSR (pressure pad) | D4 → GND | Internal pull-up is on. Pressed = LOW |
-| RGB LED, common cathode | red D3, green D5, blue D6 | 100 Ω on each colour. Cathode to GND. These are PWM pins, so the breathing works |
+| RGB LED, common cathode | red D3, green D5, blue D6 | 100 Ω on each colour. Cathode to GND. These are PWM pins, so the breathing works. Frankie's LED has red and green on each other's pins; `PEBBLE_LED_ORDER` (default `grb`) fixes that in software |
 | Waveshare USB sound card | USB-C hub | **Plug the wall charger into the hub's PD port.** The card does not work without it |
 
 ## Lights (same as the Pi)
@@ -36,8 +36,12 @@ LED          ◄─ set_led()  ◄─Bridge──┘        │
   without it still breathes, with Linux stepping `set_led`.
 - Orange breathing in and out (bright orange, `PEBBLE_ORANGE`, default `255,90,0`): the agents are
   done and a time is waiting for your answer. Tap the Dot to hear it, then answer with the pad.
+  Frankie answers after Mayo: while the time is also waiting on Mayo (Mayo's Dot is orange), this
+  Dot keeps breathing yellow and the pad does nothing (`SHORT PRESS: ignored (... waiting for the
+  other person to answer first)`). Once Mayo has answered, it breathes orange.
+  `PEBBLE_ANSWER_SECOND=0` turns that off (orange as soon as the time is ready, like the Pi).
 - Blue: the Dot is talking.
-- Green: booked on both calendars. Lasts about 60 s, then back to dim white.
+- Green: booked on both calendars. Lasts 10 s (`PEBBLE_GREEN_S`), then back to dim white.
 - No red.
 
 The UNO Q has no mic (no `arecord`, no speech to text). The pad answers the time that is waiting
@@ -122,17 +126,23 @@ These are UNO Q only:
 - `DOT_POLL_MS`: how often the inputs are read. Default 25.
 - `PEBBLE_LONG_PRESS_S`: how long to hold the pad to find a different time. Default 1.0.
 - `PEBBLE_ORANGE`: the orange of the "time is waiting" breathing, `r,g,b` 0..255. Default `255,90,0`.
+- `PEBBLE_LED_ORDER`: which colour each of the pins D3, D5, D6 lights. Default `grb`, because
+  Frankie's LED has its red and green legs swapped (green showed red, orange showed green). Set
+  `rgb` if you rewire it as red D3, green D5, blue D6. No sketch change either way.
+- `PEBBLE_ANSWER_SECOND`: `1` (default) = Frankie answers after Mayo (yellow until Mayo has
+  answered, then orange). `0` = orange as soon as a time is ready.
 - `APP_SOCKET`: the router socket. Default `unix:///var/run/arduino-router.sock`.
 
 ## 5. Test it
 
 1. **Magnet**: touch the magnet to the Hall sensor, then to Mayo's Dot (or `curl` its `/tap`). The LED
-   breathes yellow while the agents pick a time, then breathes orange. Tap again to hear the time
+   breathes yellow while the agents pick a time, and keeps breathing yellow until Mayo has answered,
+   then breathes orange. Tap again to hear the time
    (blue while it talks, then orange again).
-2. **Pad**: a short press keeps the time (green flash, `SHORT PRESS: keep`, then bright white until
-   Mayo answers). A 1 s hold finds a different time (yellow flash, `LONG PRESS: find another time`,
+2. **Pad**: a short press keeps the time (green flash, `SHORT PRESS: keep`; Mayo has already
+   answered, so it's booked). A 1 s hold finds a different time (yellow flash, `LONG PRESS: find another time`,
    both Dots breathe yellow). A bounce inside one press doesn't count twice.
-3. A change makes both Dots breathe again until there's a new time. When both of you keep it, the LED goes green for about a minute, then dim white.
+3. A change makes both Dots breathe again until there's a new time. When both of you keep it, the LED goes green for 10 seconds, then dim white.
 
 **Without the board** (on the Mac, server running with `--dry-run`):
 

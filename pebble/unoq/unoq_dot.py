@@ -14,6 +14,17 @@ are different: instead of gpiozero, the LED and the two inputs are reached over 
                                       older sketch without it: Linux steps set_led instead)
     Bridge.call("get_inputs")         -> taps * 2 + pressed   (polled every 25 ms)
 
+LED wiring: PEBBLE_LED_ORDER says which colour each of the sketch's pins D3, D5, D6 lights, and
+the (r, g, b) Linux wants is remapped before it goes over the Bridge (set_led and breathe_rgb).
+Default "grb": Frankie's LED has its red and green legs on each other's pins (green showed red,
+orange showed green, yellow / white / blue looked right). Set "rgb" if the LED is rewired
+R=D3, G=D5, B=D6. No sketch change either way.
+
+Turn order: Frankie answers after Mayo (PEBBLE_ANSWER_SECOND=1, the default). While the time also
+waits on the other person's answer, this Dot keeps breathing yellow and presses are ignored
+("waiting for the other person to answer first"); once they keep it, it breathes orange and the
+press counts. PEBBLE_ANSWER_SECOND=0: orange as soon as the time is ready, like the Pi.
+
 The pad (FSR) is the other difference. The UNO Q has no mic: no arecord, no speech to text. The pad
 answers the time waiting for Frankie (the LED breathes orange), with one press:
   short press = keep it: "SHORT PRESS: keep", a short green flash, "keep it" to /answer.
@@ -30,7 +41,8 @@ a session says the time again.
 Same environment variables as the Pi: KETCHUP_SERVER, PEBBLE_ID (defaults to frankie here),
 PEBBLE_AUDIO, PEBBLE_PHRASE, PEBBLE_GREEN_S, PEBBLE_TTS, PEBBLE_ANNOUNCE (default tap),
 PEBBLE_SAY_CONNECTED (default 0 here: Frankie's Dot is silent on pairing), PEBBLE_ORANGE (default
-255,90,0). META_API_KEY isn't used here (no speech to text). Extra: PEBBLE_LONG_PRESS_S (1.0), APP_SOCKET
+255,90,0). META_API_KEY isn't used here (no speech to text). Extra: PEBBLE_LED_ORDER (grb),
+PEBBLE_ANSWER_SECOND (1), PEBBLE_LONG_PRESS_S (1.0), APP_SOCKET
 (router address, default unix:///var/run/arduino-router.sock), DOT_POLL_MS (default 25).
 
     python3 unoq_dot.py          # on the UNO Q, with the ketchup-dot App running (sketch flashed)
@@ -56,14 +68,34 @@ KEEP_TEXT = "keep it"  # short press (the server reads both as keep / change by 
 CHANGE_TEXT = "pick a different time"  # long press: a change with no reason; the other Dot hears only that
 FLASH_KEEP, FLASH_CHANGE = "green flash (keep)", "yellow flash (find another time)"
 pb.SOLID.update({FLASH_KEEP: pb.GREEN, FLASH_CHANGE: pb.YELLOW})
+# which colour each of the sketch's pins D3, D5, D6 lights (Frankie's LED: red and green swapped)
+LED_ORDER = os.environ.get("PEBBLE_LED_ORDER", "grb").strip().lower()
+if sorted(LED_ORDER) != ["b", "g", "r"]:
+    raise SystemExit(f"PEBBLE_LED_ORDER={LED_ORDER!r}: use the letters r, g, b once each (e.g. grb)")
+ANSWER_SECOND = os.environ.get("PEBBLE_ANSWER_SECOND", "1").strip().lower() not in ("0", "no", "off", "false")
 press = {"down": None, "long": False, "edge": -1.0, "gen": 0, "flash": None, "flash_until": 0.0}
 
 _wanted = pb.wanted
 
 
+def pins(rgb):
+    """(r, g, b) 0..1 -> the sketch's (D3, D5, D6) 0..255, in LED_ORDER."""
+    v = dict(zip("rgb", rgb))
+    return tuple(round(v[c] * 255) for c in LED_ORDER)
+
+
+def other_first():
+    """The time also waits on the other person's answer, and this Dot answers after them."""
+    return bool(ANSWER_SECOND and pb.now.get("others_asked"))
+
+
 def wanted():
-    """pi_pebble's colour, except for the short flash after a press counts."""
-    return press["flash"] if time.monotonic() < press["flash_until"] else _wanted()
+    """pi_pebble's colour, except for the short flash after a press counts, and yellow (not orange)
+    breathing while the other person still has to answer first."""
+    if time.monotonic() < press["flash_until"]:
+        return press["flash"]
+    w = _wanted()
+    return pb.BREATHE if w == pb.ORANGE_BREATHE and other_first() else w
 
 
 def flash(name):
@@ -76,7 +108,7 @@ def flash(name):
 
 def time_waiting():
     """A time the agents picked is waiting for Frankie's answer (the LED breathes orange)."""
-    return bool(pb.now["sid"] and pb.now["pending"] and pb.now["mode"] != "talking")
+    return bool(pb.now["sid"] and pb.now["pending"] and pb.now["mode"] != "talking" and not other_first())
 
 
 def on_down():
@@ -105,6 +137,7 @@ def on_up():
 
 def ignored(kind):
     why = ("no session" if not pb.now["sid"] else "the agents are still deciding" if pb.now["mode"] == "talking"
+           else "waiting for the other person to answer first" if pb.now["pending"] and other_first()
            else "already answered, waiting on the other person")
     print(f"{kind}: ignored (no time waiting: {why})", flush=True)
 
@@ -214,14 +247,14 @@ class BridgeLED:
     @value.setter
     def value(self, rgb):
         self._value = tuple(rgb)
-        self.board.call("set_led", *(round(v * 255) for v in rgb))
+        self.board.call("set_led", *pins(rgb))
 
     def breathe(self, period_s, rgb=(1, 1, 0)):
         """pi_pebble.refresh() asks first: True = the sketch breathes on its own."""
         if not self.can_breathe:
             return False
         try:
-            self.board.call("breathe_rgb", round(period_s * 1000), *(round(v * 255) for v in rgb))
+            self.board.call("breathe_rgb", round(period_s * 1000), *pins(rgb))
             self._value = None
             return True
         except Exception as e:  # sketch not re-flashed yet: pi_pebble steps set_led instead

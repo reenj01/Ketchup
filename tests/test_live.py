@@ -124,6 +124,12 @@ assert sorted(l for l in logs if l.startswith("thread")) == sorted(f"thread {i} 
 assert "secret [redacted] here" in logs, logs
 assert "LED Mayo's Dot: orange breathing (time waiting for an answer) [abcd1234]" in logs, logs
 assert "LED Frankie's Dot: bright white (answered) [abcd1234]" in logs, logs
+both = ts.dot_leds({"state": "pencilled_in", "questions": {"pebble-mayo": {}, "pebble-frankie": {}}})
+assert both == {"pebble-mayo": "orange breathing (time waiting for an answer)",
+                "pebble-frankie": "yellow breathing (waiting for the other person to answer first)"}, both
+assert ts.dot_leds({"state": "pencilled_in", "questions": {"pebble-frankie": {}}})["pebble-frankie"] \
+    == "orange breathing (time waiting for an answer)"
+assert set(ts.dot_leds({"state": "booked"}).values()) == {"green (booked, 10 s, then dim white)"}
 assert 'HEARD Mayo\'s Dot (voice, speech to text 0.8 s): "no, pick a time at night"' in logs, logs
 assert 'HEARD Frankie\'s Dot (long press): "pick a different time"' in logs, logs
 plan = next(m for m in models if m["model"] == "meta-models/muse-spark-open-1026")

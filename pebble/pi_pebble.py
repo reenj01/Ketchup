@@ -15,7 +15,7 @@ Then poll GET /sessions/<id> and show it on the LED:
                      in and out, PEBBLE_ORANGE, default 255,90,0; back to it after the Dot says the time)
   blue             = the Dot (the AI agent) is talking
   solid yellow     = the mic is on (recording)
-  green            = booked by both (held 60 s, then dim white)
+  green            = booked by both (held 10 s, PEBBLE_GREEN_S, then dim white)
 Announce: when a time is ready the Dot says nothing on its own; it says the time on the next
 tap (magnet) or FSR press (PEBBLE_ANNOUNCE=tap, the default). After the owner has answered once,
 new times are said as they arrive. PEBBLE_ANNOUNCE=auto says every time as it arrives.
@@ -69,7 +69,7 @@ OWNER = os.environ.get("PEBBLE_ID", "mayo").lower()
 DEVICE = OWNER if OWNER.startswith("pebble-") else f"pebble-{OWNER}"
 CARD = os.environ.get("PEBBLE_AUDIO", "plughw:CARD=Device,DEV=0")
 PHRASE = os.environ.get("PEBBLE_PHRASE")  # optional: the plan said out loud, e.g. "let's catch up Thursday"
-GREEN_S = float(os.environ.get("PEBBLE_GREEN_S", 60))
+GREEN_S = float(os.environ.get("PEBBLE_GREEN_S", 10))
 BREATHE_S = float(os.environ.get("PEBBLE_BREATHE_S", 3.0))  # one slow yellow breath
 ANNOUNCE = os.environ.get("PEBBLE_ANNOUNCE", "tap").lower()  # tap (say a new time on tap/press) | auto
 SAY_CONNECTED = os.environ.get("PEBBLE_SAY_CONNECTED", "1" if OWNER == "mayo" else "0") == "1"
@@ -115,7 +115,7 @@ led = fsr = hall = None
 now = {"sid": None, "heard": None, "answered": None, "pending": None, "engaged": False, "green_until": 0,
        "rec": None, "wav": None, "busy": False, "led": None, "gen": 0, "round": 0, "talk_until": 0,
        "mode": "ready", "speaking": False, "hush": None, "player": [], "edge": -1.0, "rec_t0": 0,
-       "booking": False, "greeting": False}
+       "booking": False, "greeting": False, "others_asked": False}
 ready_pcm = {}  # text -> MMS PCM made at startup (the connected line), played without waiting on the model
 speaking = threading.Lock()
 led_lock = threading.Lock()
@@ -518,7 +518,7 @@ def on_tap():
     print("TAP", r, flush=True)
     if r.get("status") == "paired":  # the agents start picking a time right away
         now.update(sid=r["session_id"], heard=None, answered=None, pending=None, engaged=False, green_until=0,
-                   round=0, talk_until=0, mode="talking")
+                   round=0, talk_until=0, mode="talking", others_asked=False)
         if SAY_CONNECTED:  # its own thread: the agents and the polling go on while it plays
             now["greeting"] = True
             threading.Thread(target=say_connected, daemon=True).start()
@@ -650,6 +650,8 @@ def tick():
         return
     s = call(f"/sessions/{now['sid']}")
     st = s.get("state")
+    if not s.get("busy"):  # does a time still wait on someone else? (the UNO Q answers after them)
+        now["others_asked"] = any(d != DEVICE for d in s.get("questions") or {})
     q = s.get("questions", {}).get(DEVICE)
     q = q and (s["change_round"], q["say"])
     if st not in DONE and s.get("change_round", 0) > now["round"]:
@@ -659,7 +661,7 @@ def tick():
     talking = time.monotonic() < now["talk_until"]
     if st in DONE:
         line = s.get("speak", {}).get(DEVICE)
-        # blue while it says so (also while it waits for a line still playing), then the full green minute
+        # blue while it says so (also while it waits for a line still playing), then green for GREEN_S
         now.update(sid=None, pending=None, mode="ready", booking=bool(line))
         if line:
             refresh()

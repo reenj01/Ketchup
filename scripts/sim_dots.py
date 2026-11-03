@@ -3,7 +3,8 @@ Mayo taps first, Frankie --gap s later (inside the server's 5 s pair window). On
 says "Dots connected. We will get back to you once we are done." (LED bright white, not blue, then yellow
 breathing); Frankie's stays silent. Both people walk away for
 --walk-away s after a time is ready: neither Dot may speak until its owner presses the pad.
-While a time waits for an owner, that Dot breathes orange.
+While a time waits for an owner, that Dot breathes orange, except Frankie's (UNO Q): it answers after
+Mayo, so it breathes yellow while Mayo's Dot is orange and turns orange once Mayo has answered.
 Then Mayo on the Pi code (mock pins) talks over the first time (a press cuts the voice and opens the
 mic), asks "no, pick a time at night", then keeps the new time;
 Frankie on the UNO Q code (fake sketch, no mic) taps the magnet to hear each time and, a few
@@ -11,7 +12,7 @@ seconds later, keeps it with a short press. --renegotiate: Frankie's first answe
 instead (find another time): both Dots breathe yellow while the agents pick again, and Mayo's Dot
 must say "Frankie wants a different time" with the new time.
 
-    python scripts/sim_dots.py [--url http://localhost:8787] [--green-s 6] [--gap 4] [--walk-away 5]
+    python scripts/sim_dots.py [--url http://localhost:8787] [--green-s 10] [--gap 4] [--walk-away 5]
                                [--renegotiate] [--router] [--old-sketch]
                                [--pi-python /path/to/venv-with-gpiozero/bin/python]
 """
@@ -24,7 +25,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ap = argparse.ArgumentParser()
 ap.add_argument("--url", default="http://localhost:8787")
-ap.add_argument("--green-s", default="6")
+ap.add_argument("--green-s", default="10")
 ap.add_argument("--gap", type=float, default=4, help="seconds between Mayo's tap and Frankie's")
 ap.add_argument("--walk-away", default="5", help="seconds both stay away once a time is ready")
 ap.add_argument("--router", action="store_true")

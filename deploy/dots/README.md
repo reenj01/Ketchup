@@ -12,8 +12,9 @@ Nothing else runs on the Mac, and nothing gets typed on the boards. Each Hall ta
 own `/tap`, so touching the two Dots together (or tapping each within 5 s,
 `KETCHUP_PAIR_WINDOW_S`) pairs them. No curl is needed. On pairing both LEDs go bright white.
 Mayo's Dot says "Dots connected. We will get back to you once we are done." (still bright white), then
-breathes yellow while the agents pick a time; Frankie's Dot is silent and breathes right away. When the agents are done both Dots breathe
-orange: a time is waiting. Nothing else is spoken until someone taps their Dot (or presses the
+breathes yellow while the agents pick a time; Frankie's Dot is silent and breathes right away. When the agents are done Mayo's Dot breathes
+orange: a time is waiting. Frankie answers after Mayo, so Frankie's Dot keeps breathing yellow until
+Mayo has answered, then breathes orange. Nothing else is spoken until someone taps their Dot (or presses the
 Pi's pad). Frankie answers with the UNO Q pad: short press keeps, a 1 s hold finds another time.
 
 ## What's in here
@@ -155,6 +156,12 @@ The service retries every 3 s on its own. If it keeps failing:
 - Check `systemctl status arduino-router`.
 - Check `ls -l /var/run/arduino-router.sock`. The `arduino` user needs read/write access.
 - Check `arduino-app-cli app list`. The App must be running.
+
+**UNO Q: green shows red, orange shows green**
+
+The LED's red and green legs are on each other's pins. `PEBBLE_LED_ORDER=grb` (the default) fixes
+it. If you rewire the LED as red D3, green D5, blue D6, put `PEBBLE_LED_ORDER=rgb` in
+`~/ketchup-dot.env`, then run `sudo systemctl restart ketchup-dot`.
 
 **Pi: no sound**
 
