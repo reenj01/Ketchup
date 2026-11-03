@@ -40,10 +40,7 @@ h1{font-family:var(--display);font-size:1em;line-height:.9;letter-spacing:-.045e
 .plan input:focus{border-bottom-color:var(--peri)}
 .plan input:disabled{color:var(--soft);border-bottom-color:transparent}
 
-.stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"st st" "m f" "t t" "p p";gap:36px 12px;margin-top:30px}
-.statusbar{grid-area:st;display:flex;align-items:center;gap:20px;justify-content:space-between}
-.mayo-col{grid-area:m}.frankie-col{grid-area:f}.talk-col{grid-area:t}.plan-col{grid-area:p}
-.dot-col h2{display:none}
+.stage{display:grid;grid-template-columns:1fr;gap:44px;margin-top:30px}
 .col{min-width:0;display:flex;flex-direction:column}
 .status{min-height:62px}
 .status .now{display:block;font-family:var(--serif);font-size:30px;line-height:1.05;letter-spacing:-.01em}
@@ -55,7 +52,10 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 
 /* pebbles */
 :root{--peb:104px;--sidepad:28px}
-.side{padding:var(--sidepad) 14px 22px;text-align:center;position:relative;border:1.5px solid var(--line);border-radius:22px;transition:background .5s}
+.pair{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:12px;border:1.5px solid var(--line);border-radius:22px}
+.side{padding:var(--sidepad) 14px 22px;text-align:center;position:relative;border-radius:22px;transition:background .5s}
+.side + .side{border-left:1.5px solid var(--line);border-radius:0 22px 22px 0}
+.side:first-of-type{border-radius:22px 0 0 22px}
 .pebble{width:var(--peb);height:var(--peb);border-radius:50%;margin:0 auto;cursor:grab;touch-action:none;position:relative;
   background:radial-gradient(circle at 38% 32%,#ffffff 0%,#f4f2ee 45%,#e2dfd8 100%);
   box-shadow:0 10px 24px rgba(29,27,34,.10), inset 0 -6px 14px rgba(0,0,0,.04);
@@ -99,7 +99,8 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 .typed button{border:0;background:none;color:var(--peri-ink);cursor:pointer;font-weight:700}
 .small{font-size:13px;margin-top:8px}
 .err{color:#c2381a;font-size:13.5px;margin-top:6px;min-height:0}
-.pairbtn{flex:none}
+.pairbtn{position:absolute;left:50%;top:calc(var(--sidepad) + var(--peb) / 2 - 22px);transform:translateX(-50%);z-index:3}
+.pairbtn:active{transform:translate(calc(-50% + 2px),2px)}
 
 /* speak buttons: nothing plays until one is pressed */
 .say{flex:none;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--ink);background:#fff;color:var(--ink);display:inline-grid;place-items:center;cursor:pointer;padding:0;box-shadow:1.5px 1.5px 0 var(--ink);transition:background .2s}
@@ -202,16 +203,13 @@ footer .link{font-size:12.5px;padding:0}
   .squiggle{left:2.75em}
   .star{left:5.3em;top:-.22em}
   .col{min-height:0}
-  .stage{flex:1;min-height:0;grid-template-rows:auto minmax(0,1fr);grid-template-columns:minmax(0,.62fr) minmax(0,1.1fr) minmax(0,.95fr) minmax(0,.62fr);grid-template-areas:"st st st st" "m t p f";gap:clamp(10px,1.8vh,22px) clamp(22px,2.4vw,48px);margin-top:clamp(16px,3vh,38px)}
+  .stage{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);grid-template-columns:minmax(0,1.05fr) minmax(0,1.15fr) minmax(0,.85fr);gap:clamp(28px,2.8vw,56px);margin-top:clamp(16px,3vh,38px)}
   .status .now{font-size:clamp(24px,3.6vh,36px)}
   .name{margin-top:clamp(12px,2vh,22px);font-size:clamp(24px,3.4vh,32px)}
   .q{font-size:clamp(14px,1.9vh,17px)}
   h2{font-size:clamp(24px,3.6vh,34px)}
-  .col h2{margin-bottom:12px}
-  .dot-col h2{display:block}
-  .dot-col .name{display:none}
-  .statusbar{justify-content:flex-start;gap:28px}
-  .status{min-height:0}
+  .status{min-height:calc(clamp(24px,3.6vh,36px) * 1.05 + 14px * 1.35 * 2 + 4px)}
+  .col.talk-col h2,.col.plan-col h2{margin-bottom:12px}
   .notes li{font-size:clamp(13.5px,1.8vh,16px)}
   .week{margin-top:clamp(16px,2.6vh,34px)}
   summary .models em{font-size:10.5px;padding:2px 7px}
@@ -241,6 +239,10 @@ footer .link{font-size:12.5px;padding:0}
   .side .sticky{top:8px;right:4px;font-size:9.5px;padding:3px 6px}
   :root{--peb:96px}
   .name{font-size:26px}
+  .pairbtn{position:static;transform:none;grid-column:1/-1;order:3;justify-self:center;margin:4px 0 22px}
+  .pairbtn:active{transform:translate(2px,2px)}
+  .side + .side{border-radius:0 22px 0 0}
+  .side:first-of-type{border-radius:22px 0 0 0}
   .notes li{max-width:94%}
   :root{--tk:180px}
   .ticket .num{font-size:88px}
@@ -269,16 +271,19 @@ footer .link{font-size:12.5px;padding:0}
   </section>
 
   <main class="stage">
-    <div class="statusbar">
+    <div class="col">
       <div class="status"><span class="now" id="now">Touch the Dots together.</span><span class="hint" id="hint">Drag one onto the other, or tap Pair.</span></div>
-      <button class="btn orange pairbtn" id="tapbtn">Pair</button>
-    </div>
-    <div class="col dot-col mayo-col">
-      <h2>Mayo's Dot</h2>
-      <div class="side" id="side-mayo">
-        <div class="pebble" id="peb-mayo"><span class="dot"></span></div>
-        <div id="co-mayo"></div>
-      </div>
+      <section class="pair" id="stage">
+        <button class="btn orange pairbtn" id="tapbtn">Pair</button>
+        <div class="side" id="side-mayo">
+          <div class="pebble" id="peb-mayo"><span class="dot"></span></div>
+          <div id="co-mayo"></div>
+        </div>
+        <div class="side" id="side-frankie">
+          <div class="pebble" id="peb-frankie"><span class="dot"></span></div>
+          <div id="co-frankie"></div>
+        </div>
+      </section>
     </div>
     <div class="col talk-col">
       <h2>the talk <i>( 01 )</i></h2>
@@ -292,13 +297,6 @@ footer .link{font-size:12.5px;padding:0}
         <summary><h2>models <i>( 03 )</i></h2><span class="models"><em>Muse Spark</em><em>Muse Voice Transcribe</em><em>MMS-TTS</em></span> <span id="callsum"></span> <span id="calltoggle"></span></summary>
         <div class="pop"><table class="calls" id="calls"></table></div>
       </details>
-    </div>
-    <div class="col dot-col frankie-col">
-      <h2>Frankie's Dot</h2>
-      <div class="side" id="side-frankie">
-        <div class="pebble" id="peb-frankie"><span class="dot"></span></div>
-        <div id="co-frankie"></div>
-      </div>
     </div>
   </main>
 
