@@ -176,9 +176,7 @@ summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;f
 summary::-webkit-details-marker{display:none}
 summary h2{margin:0;font-size:24px}
 summary .models{display:flex;gap:6px;flex-wrap:wrap}
-summary .models em,.calls td.m em{font-style:normal;font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:6px;background:var(--peri);color:#fff;white-space:nowrap}
-summary .models em:nth-child(2),.calls td.m em.v{background:var(--pink);color:var(--ink)}
-summary .models em:nth-child(3),.calls td.m em.s{background:var(--yellow);color:var(--ink)}
+summary .models em,.calls td.m em{font-style:normal;font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid var(--ink);background:none;color:var(--ink);white-space:nowrap}  /* plain on purpose: chat colours mean people */
 #calltoggle{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
 .pop{margin-top:14px}
 .calls{width:100%;border-collapse:collapse}
@@ -197,6 +195,16 @@ footer .link{font-size:12.5px;padding:0}
 /* each person's mock calendar, the same data the agents read */
 .calbtn{margin-top:8px;border:1.5px solid var(--ink);background:#fff;border-radius:999px;padding:3px 11px;font-family:var(--mono);font-size:11px;letter-spacing:.03em;cursor:pointer;color:var(--ink)}
 .calbtn:hover{background:var(--hair)}
+/* once a time is pencilled in: nudge judges to open a calendar, until one is opened */
+.calbtn{transition:background .3s,border-color .3s,box-shadow .3s;position:relative;z-index:2}
+.calbtn.nudge{background:var(--yellow);border-color:var(--orange);color:var(--ink);font-weight:700;box-shadow:2px 2px 0 var(--orange);animation:calnudge 3.2s ease-in-out infinite}
+.calbtn.nudge:hover{background:#ffe774}
+@keyframes calnudge{
+  0%{transform:scale(1)} 8%{transform:scale(1.14)}
+  11%{transform:scale(1.14) translateX(-4px) rotate(-2deg)} 14%{transform:scale(1.14) translateX(4px) rotate(2deg)}
+  17%{transform:scale(1.14) translateX(-3px) rotate(-1.5deg)} 20%{transform:scale(1.14) translateX(3px) rotate(1.5deg)}
+  23%{transform:scale(1.14) translateX(0)} 60%{transform:scale(1.14)} 75%,100%{transform:scale(1)}}
+@media (prefers-reduced-motion: reduce){.calbtn.nudge{animation:none}}
 .calov{display:none}
 .calov.open{display:block}
 .calcard{background:#fff;display:flex;flex-direction:column}
@@ -272,7 +280,7 @@ footer .link{font-size:12.5px;padding:0}
   .col.talk-col h2,.col.plan-col h2{margin-bottom:12px}
   .notes li{font-size:clamp(13.5px,1.8vh,16px)}
   .week{margin-top:clamp(16px,2.6vh,34px)}
-  summary .models em{font-size:10.5px;padding:2px 7px}
+  summary .models em{font-size:10.5px;padding:1px 6px}
   summary h2{font-size:clamp(20px,2.8vh,26px)}
   .week div{min-height:clamp(60px,8.4vh,108px)}
   .week b{font-size:clamp(18px,2.8vh,28px)}
@@ -380,6 +388,7 @@ const $ = s => document.querySelector(s);
 const KEYS = ["mayo", "frankie"];
 const NAMES = {mayo: "Mayo", frankie: "Frankie"};
 const DONE = ["booked", "agreed (dry run, not booked)"];
+let calSeen = false;  // a calendar was opened this session, so stop the "See calendar" nudge
 let sid = null, view = null, lineCount = 0, polling = null, busy = {mayo: false, frankie: false};
 let errs = {mayo: "", frankie: "", global: ""}, health = {};
 let fadeUntil = {mayo: 0, frankie: 0}, lastState = null, typeOpen = {mayo: false, frankie: false}, weekData = null;
@@ -431,7 +440,7 @@ async function api(path, opts = {}) {
 }
 const post = (path, data) => api(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)});
 async function start() {
-  errs = {mayo: "", frankie: "", global: ""};
+  calSeen = false; errs = {mayo: "", frankie: "", global: ""};
   $("#tapbtn").disabled = true;
   const r = await post("/sim/api/tap", {phrase: $("#phrase").value, replaces: sid});
   $("#tapbtn").disabled = false;
@@ -524,6 +533,7 @@ function led(k) {
   const p = view.pebbles[k] || {};
   return p.question && !busy[k] ? "red" : "yellow";
 }
+function setHTML(el, html) { if (el._html !== html) el.innerHTML = el._html = html; }
 function render() {
   const st = view ? view.state : "idle";
   for (const k of KEYS) {
@@ -537,20 +547,32 @@ function render() {
     const lastReply = (p.replies || []).slice(-1)[0] || "";
     const said = p.question || (DONE.includes(st) ? p.speak : sid ? lastReply : "") || "";
     const text = said || (DONE.includes(st) ? "All set." : "");
-    const co = $("#co-" + k), had = co.querySelector("input"), typed = had ? had.value : "", focused = had && document.activeElement === had;
-    co.innerHTML = `
-      ${l === "red" ? '<span class="sticky">Your turn</span>' : ""}
-      <div class="name">${NAMES[k]}</div>
-      ${l === "red" ? "" : `<span class="tag ${tag[0]}">${tag[1]}</span>`}
-      <div class="q"><span>${esc(text)}</span>${said ? sayBtn("p" + k + "|" + said, said, k) : ""}</div>
-      <div class="heard">${p.heard ? "Heard <b>“" + esc(p.heard.text) + "”</b>" : ""}</div>
-      <div class="talk" style="${sid && !isOver() ? "" : "display:none"}">
-        <button class="btn ${recording === k ? "rec" : canTalk ? "orange" : ""}" data-talk="${k}" ${canTalk || recording === k ? "" : "disabled"}>${recording === k ? "Listening… let go to send" : "Hold to talk"}</button>
-        <div><button class="link small" data-open="${k}" ${canTalk ? "" : "disabled"}>${typeOpen[k] ? "" : "or type instead"}</button></div>
-        <div class="typed ${typeOpen[k] ? "open" : ""}"><input placeholder="Type an answer" value="${esc(typed)}" ${canTalk ? "" : "disabled"} data-type="${k}"><button data-send="${k}" ${canTalk ? "" : "disabled"}>Send</button></div>
+    // Build the card once, then only touch what changed, so a poll never replaces the typed-answer input
+    // (re-creating it every 800 ms threw the caret back to the start while someone was typing).
+    const co = $("#co-" + k);
+    if (!co.firstElementChild) co.innerHTML = `
+      <span class="sticky">Your turn</span><div class="name"></div><span class="tag"></span>
+      <div class="q"></div><div class="heard"></div>
+      <div class="talk">
+        <button class="btn" data-talk="${k}"></button>
+        <div><button class="link small" data-open="${k}"></button></div>
+        <div class="typed"><input placeholder="Type an answer" data-type="${k}"><button data-send="${k}">Send</button></div>
       </div>
-      <div class="err">${esc(errs[k])}</div>`;
-    if (focused && canTalk) co.querySelector("input").focus();
+      <div class="err"></div>`;
+    const q = s => co.querySelector(s), tg = q(".tag"), tb = q("[data-talk]"), inp = q("[data-type]");
+    q(".sticky").style.display = l === "red" ? "" : "none";
+    setHTML(q(".name"), NAMES[k]);
+    tg.style.display = l === "red" ? "none" : ""; tg.className = "tag " + tag[0]; setHTML(tg, tag[1]);
+    setHTML(q(".q"), `<span>${esc(text)}</span>${said ? sayBtn("p" + k + "|" + said, said, k) : ""}`);
+    setHTML(q(".heard"), p.heard ? "Heard <b>“" + esc(p.heard.text) + "”</b>" : "");
+    q(".talk").style.display = sid && !isOver() ? "" : "none";
+    tb.className = "btn " + (recording === k ? "rec" : canTalk ? "orange" : "");
+    tb.disabled = !(canTalk || recording === k);
+    setHTML(tb, recording === k ? "Listening… let go to send" : "Hold to talk");
+    q("[data-open]").disabled = !canTalk; setHTML(q("[data-open]"), typeOpen[k] ? "" : "or type instead");
+    q(".typed").classList.toggle("open", !!typeOpen[k]);
+    inp.disabled = !canTalk; q("[data-send]").disabled = !canTalk;
+    setHTML(q(".err"), esc(errs[k]));
   }
   bindTalk();
   // one plain status line
@@ -559,8 +581,8 @@ function render() {
     const reds = KEYS.filter(k => led(k) === "red").map(k => NAMES[k]);
     const left = view.seconds_left != null && reds.length ? ` You have ${view.seconds_left} s.` : "";
     if (st === "paired") now = "Paired.", hint = "Reading the plan…";
-    else if (reds.length) now = reds.join(" and ") + (reds.length > 1 ? ", your turn." : ", your turn."),
-      hint = (st === "pencilled_in" ? "Keep it, or ask for another time." : "Hold to talk on your Dot.") + left;
+    else if (reds.length) now = "Two Friends: Mayo and Frankie",
+      hint = st === "pencilled_in" ? "Two Devices: Two Dots" : "Hold to talk on your Dot." + left;
     else if (st === "asking_time_of_day") now = "Checking with the other Dot.", hint = "";
     else if (st === "proposing") now = "The agents are finding a time.", hint = "They share free times, never your events.";
     else if (st === "pencilled_in") now = "Pencilled in.", hint = "It locks in at 10 PM unless someone changes it.";
@@ -573,7 +595,11 @@ function render() {
   $("#tapbtn").textContent = sid ? "Pair again" : "Pair";
   $("#phrase").disabled = !!sid && !isOver();
   $("#skip").style.display = st === "pencilled_in" ? "" : "none";
-  renderCard(); renderCalls();
+  nudgeCal(); renderCard(); renderCalls();
+}
+function nudgeCal() {
+  const st = view ? view.state : "idle", on = !!sid && !calSeen && (st === "pencilled_in" || DONE.includes(st));
+  document.querySelectorAll(".calbtn").forEach(b => b.classList.toggle("nudge", on));
 }
 function renderCard() {
   const c = $("#card"), st = view ? view.state : "idle";
@@ -599,7 +625,7 @@ function renderCalls() {
   const calls = (view && view.calls) || [];
   $("#callsum").textContent = calls.length ? `${calls.length} calls` : "";
   $("#calltoggle").textContent = calls.length ? "· " + ($("#calls-box").open ? "hide" : "show") : "";
-  $("#calls").innerHTML = calls.map(c => `<tr class="${c.ok ? "" : "fail"}"><td class="m"><em class="${/transcribe/.test(c.model) ? "v" : /tts/.test(c.model) ? "s" : ""}">${esc(c.model.replace(/^meta-models\//, ""))}</em></td><td>${esc(c.what)}${c.ok ? "" : " (failed, used backup)"}</td><td class="s">${c.cached ? "saved" : c.seconds.toFixed(2) + " s"}</td></tr>`).join("");
+  $("#calls").innerHTML = calls.map(c => `<tr class="${c.ok ? "" : "fail"}"><td class="m"><em>${esc(c.model.replace(/^meta-models\//, ""))}</em></td><td>${esc(c.what)}${c.ok ? "" : " (failed, used backup)"}</td><td class="s">${c.cached ? "saved" : c.seconds.toFixed(2) + " s"}</td></tr>`).join("");
   fitCalls();
 }
 $("#calls-box").addEventListener("toggle", renderCalls);
@@ -691,7 +717,7 @@ function renderCal() {
   }).join("")}</div>`;
 }
 function openCal(k, from) {
-  calShow = k; calFrom = from || calFrom; $("#calov").classList.add("open"); document.body.classList.add("calopen");
+  calShow = k; calFrom = from || calFrom; calSeen = true; nudgeCal(); $("#calov").classList.add("open"); document.body.classList.add("calopen");
   if (!wide()) scrollTo(0, 0);
   renderCal(); loadWeek();
   $("#calx").focus({preventScroll: true});
@@ -815,7 +841,7 @@ function stopSpeech() {
 }
 
 // ---- controls ----
-$("#reset").onclick = () => { stopSpeech(); clearInterval(polling); sid = null; view = null; lastState = null; errs = {mayo: "", frankie: "", global: ""};
+$("#reset").onclick = () => { stopSpeech(); clearInterval(polling); sid = null; calSeen = false; view = null; lastState = null; errs = {mayo: "", frankie: "", global: ""};
   noteN = 0; $("#conv").innerHTML = '<li class="empty">Nothing yet.</li>'; history.replaceState(null, "", location.pathname); render(); loadWeek(); };
 $("#skip").onclick = async () => { $("#skip").disabled = true; await post(`/sim/api/session/${sid}/skip_to_end_of_day`, {}); $("#skip").disabled = false; poll(); };
 
