@@ -194,9 +194,69 @@ footer .r{display:flex;gap:18px}
 footer .link{font-size:12.5px;padding:0}
 
 /* laptop and desktop: one screen, three columns, nothing scrolls */
+/* each person's mock calendar, the same data the agents read */
+.calbtn{margin-top:8px;border:1.5px solid var(--ink);background:#fff;border-radius:999px;padding:3px 11px;font-family:var(--mono);font-size:11px;letter-spacing:.03em;cursor:pointer;color:var(--ink)}
+.calbtn:hover{background:var(--hair)}
+.calov{display:none}
+.calov.open{display:block}
+.calcard{background:#fff;display:flex;flex-direction:column}
+.calhead{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.calhead h2{margin:0}
+.caltabs{display:flex;gap:6px;margin-left:auto}
+.caltabs button{border:1.5px solid var(--ink);background:#fff;border-radius:999px;padding:4px 12px;font-size:13px;font-weight:700;cursor:pointer;color:var(--ink)}
+.caltabs button.on{background:var(--ink);color:#fff}
+.calx{border:0;background:none;font-size:26px;line-height:1;cursor:pointer;color:var(--ink);padding:0 2px}
+.calx:focus{outline:none}.calx:focus-visible{outline:2px solid var(--peri);outline-offset:2px;border-radius:6px}
+.calhint{color:var(--soft);font-size:13px;margin:6px 0 10px}
+.callegend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--soft);margin-top:10px}
+.callegend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px;border:1px solid var(--line)}
+.ev{border-radius:6px;font-size:10.5px;line-height:1.2;padding:2px 5px;overflow:hidden;color:var(--ink)}
+.ev b{font-weight:700;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev span{font-family:var(--mono);font-size:9.5px;white-space:nowrap}
+.ev.mayo,.callegend .mayo{background:#e9e8fd;border:1px solid #c9c7f8}
+.ev.frankie,.callegend .frankie{background:#ffe6ef;border:1px solid #f6bfd3}
+.ev.k,.callegend .k{background:var(--yellow);border:1.5px solid var(--ink);z-index:2}
+.ev.k.ok,.callegend .ok{background:var(--green)}
+/* desktop: a week grid in a centred card, sized to the window */
+.cg{flex:1;min-height:0;display:grid;grid-template-columns:40px repeat(7,minmax(0,1fr));grid-template-rows:auto minmax(0,1fr);column-gap:4px}
+.cg .dh{text-align:center;font-size:11px;font-family:var(--mono);text-transform:uppercase;color:var(--soft);padding-bottom:4px;line-height:1.25}
+.cg .dh b{display:block;font-family:var(--display);font-size:20px;color:var(--ink);letter-spacing:-.02em}
+.cg .dh small{display:block;font-size:9px;height:11px}
+.cg .hrs{position:relative}
+.cg .hrs span{position:absolute;right:4px;transform:translateY(-50%);font-family:var(--mono);font-size:9.5px;color:var(--faint)}
+.cg .day{position:relative;border:1px solid var(--hair);border-radius:8px;background-image:linear-gradient(var(--hair) 1px,transparent 1px);background-size:100% calc(100% / var(--nh))}
+.cg .day.out{opacity:.38}
+.cg .day .past{position:absolute;left:0;right:0;top:0;background:repeating-linear-gradient(135deg,#f4f3f7 0 6px,#fff 6px 12px);border-radius:8px 8px 0 0}
+.cg .ev{position:absolute;left:3px;right:3px}
+.cg .ev.k{left:1px;right:1px;padding:1px 5px}
+.cg .ev.k b{font-size:10px;line-height:1.25}
+.cg .buf{position:absolute;left:0;right:0;border:1.5px dashed var(--faint);border-radius:6px;z-index:1}
+.cg.both .ev.mayo{right:calc(50% + 1px)}
+.cg.both .ev.frankie{left:calc(50% + 1px)}
+.cg .lanes{display:flex;font-size:8.5px;font-family:var(--mono);color:var(--faint);justify-content:space-around}
+/* phone: a day-by-day list, in the page (no inner scroll box) */
+.agenda h3{font-family:var(--serif);font-weight:400;font-size:22px;margin:16px 0 6px}
+.agenda h3 small{font-size:12px;color:var(--soft);font-family:var(--mono);margin-left:6px}
+.agenda .ev{display:flex;gap:8px;align-items:baseline;margin:4px 0;padding:6px 10px;font-size:13px}
+.agenda .ev b{display:inline;white-space:normal}
+.agenda .ev span{font-size:11px;min-width:118px}
+.agenda .none{color:var(--faint);font-size:13px}
+@media (min-width:900px){
+  .calov.open{position:fixed;inset:0;z-index:50;background:rgba(29,27,34,.32);display:grid;place-items:center}
+  .calcard{width:min(1180px,calc(100vw - 64px));height:calc(100dvh - 56px);max-height:820px;border:1.5px solid var(--ink);border-radius:22px;box-shadow:6px 6px 0 var(--ink);padding:18px 24px 16px}
+  .calhead h2{font-size:clamp(24px,3.6vh,34px)}
+}
+@media (max-width:899px){
+  body.calopen .wrap{display:none}
+  .calcard{padding:18px}
+  .calhead h2{font-size:28px}
+  .caltabs{margin-left:0;order:3;width:100%}
+  .calx{margin-left:auto}
+}
+
 @media (min-width:900px){
   html,body{height:100%}
-  :root{--peb:clamp(84px,14vh,150px);--sidepad:clamp(18px,3.4vh,40px);--tk:clamp(120px,16.5vh,220px)}
+  :root{--peb:clamp(84px,12.8vh,150px);--sidepad:clamp(16px,3vh,40px);--tk:clamp(120px,16.5vh,220px)}
   .wrap{max-width:1640px;height:100vh;height:100dvh;display:flex;flex-direction:column;padding:clamp(14px,2.4vh,28px) clamp(28px,3vw,56px) clamp(10px,1.6vh,20px)}
   .hero{font-size:clamp(40px,7.4vh,86px);margin-top:clamp(10px,2vh,26px);display:flex;align-items:flex-end;gap:28px}
   .plan{margin:0 0 .14em;font-size:clamp(14px,1.9vh,17px)}
@@ -278,10 +338,12 @@ footer .link{font-size:12.5px;padding:0}
         <div class="side" id="side-mayo">
           <div class="pebble" id="peb-mayo"><span class="dot"></span></div>
           <div id="co-mayo"></div>
+          <button class="calbtn" data-cal="mayo">See calendar</button>
         </div>
         <div class="side" id="side-frankie">
           <div class="pebble" id="peb-frankie"><span class="dot"></span></div>
           <div id="co-frankie"></div>
+          <button class="calbtn" data-cal="frankie">See calendar</button>
         </div>
       </section>
     </div>
@@ -304,6 +366,14 @@ footer .link{font-size:12.5px;padding:0}
     <span>Simulated Dots. Real hardware: Raspberry Pi 5 Dot shown in the video. Sample calendars, nothing is booked for real.</span>
     <span class="r"><button class="link" id="skip" style="display:none">Skip to 10 PM</button><a class="link" href="/classic">Classic page</a></span>
   </footer>
+</div>
+<div class="calov" id="calov" role="dialog" aria-modal="true" aria-labelledby="caltitle">
+  <div class="calcard">
+    <div class="calhead"><h2 id="caltitle">calendar</h2><div class="caltabs"><button data-show="mayo">Mayo</button><button data-show="frankie">Frankie</button><button data-show="both">Both</button></div><button class="calx" id="calx" aria-label="Close">×</button></div>
+    <div class="calhint" id="calhint"></div>
+    <div id="calbody"></div>
+    <div class="callegend"><span><i class="mayo"></i>Mayo's events</span><span><i class="frankie"></i>Frankie's events</span><span><i class="k"></i>Ketchup, pencilled in</span><span><i class="k ok"></i>Ketchup, booked</span><span><i style="border:1.5px dashed var(--faint);background:#fff"></i>30 min kept clear</span><span>Sample calendars, the same ones the agents read.</span></div>
+  </div>
 </div>
 <script>
 const $ = s => document.querySelector(s);
@@ -551,7 +621,8 @@ addEventListener("resize", () => { fitPhrase(); fitNotes(); renderCalls(); });
 async function loadWeek() {
   const r = await api("/sim/api/calendar" + (sid ? "?session=" + sid : "")).catch(() => null);
   if (!r || !r.ok) return;
-  const W = r.body, z = {timeZone: "America/New_York"};
+  const W = weekData = r.body, z = {timeZone: "America/New_York"};
+  renderCal();
   const dayOf = d => new Date(d).toLocaleDateString("en-CA", z);
   const hold = (W.people.mayo.ketchup || [])[0];
   $("#week").innerHTML = W.days.map((day, i) => {
@@ -562,6 +633,80 @@ async function loadWeek() {
     return `<div class="${hit ? "hit" + (ok ? " ok" : "") : ""}">${i === 0 ? '<i class="sticky today">Today</i>' : ""}<span>${d.toLocaleDateString("en-US", {weekday: "short"})}</span><b>${String(d.getDate()).padStart(2, "0")}</b>${hit ? `<em>${tm}</em>` : ""}${ok ? '<i class="sticky done">Booked!</i>' : ""}</div>`;
   }).join("");
 }
+
+
+// ---- each person's calendar, from the same mock data the agents read ----
+let calShow = null, calFrom = null;
+const ET = new Intl.DateTimeFormat("en-CA", {timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23"});
+function etOf(iso) {
+  const p = Object.fromEntries(ET.formatToParts(new Date(iso)).map(x => [x.type, x.value]));
+  return {day: `${p.year}-${p.month}-${p.day}`, h: +p.hour + +p.minute / 60};
+}
+const hm = h => { const H = Math.floor(h), M = Math.round((h - H) * 60); return `${H % 12 || 12}${M ? ":" + String(M).padStart(2, "0") : ""}`; };
+const ampm = h => (h < 12 || h >= 24 ? "AM" : "PM");
+const span = (a, b) => `${hm(a)}${ampm(a) === ampm(b) ? "" : " " + ampm(a)}–${hm(b)} ${ampm(b)}`;
+function calEvents(W, who) {
+  const out = [];
+  for (const k of who) for (const e of W.people[k].busy) {
+    const a = etOf(e.start), b = etOf(e.end);
+    out.push({k, day: a.day, a: a.h, b: b.h, title: e.title});
+  }
+  const hold = (W.people.mayo.ketchup || [])[0];
+  if (hold) {
+    const a = etOf(hold.start), mins = hold.minutes || 30, ok = hold.status === "confirmed";
+    out.push({k: "k" + (ok ? " ok" : ""), day: a.day, a: a.h, b: a.h + mins / 60, title: (ok ? "Booked: " : "Pencilled in: ") + (hold.title || "Ketchup"), short: ok ? "Ketchup ✓" : "Ketchup?"});
+  }
+  return out.sort((x, y) => x.a - y.a);
+}
+function renderCal() {
+  if (!calShow || !weekData) return;
+  const W = weekData, who = calShow === "both" ? KEYS : [calShow];
+  $("#caltitle").innerHTML = calShow === "both" ? "both calendars" : `${esc(W.people[calShow].name)}'s calendar`;
+  document.querySelectorAll("[data-show]").forEach(b => b.classList.toggle("on", b.dataset.show === calShow));
+  $("#calhint").textContent = `Each agent reads only its own person's calendar. It shares free times with the other agent, never event names. Ketchup keeps ${W.buffer_min} min clear around every event.`;
+  const evs = calEvents(W, who), win = W.window, inWin = d => !win || (d >= win[0] && d <= win[1]);
+  const now = etOf(new Date().toISOString()), z = {timeZone: "UTC"};
+  const label = d => new Date(d + "T12:00:00Z");
+  if (!wide()) {
+    $("#calbody").innerHTML = `<div class="agenda">${W.days.map(d => {
+      const list = evs.filter(e => e.day === d), dt = label(d);
+      return `<h3>${dt.toLocaleDateString("en-US", {...z, weekday: "long"})} ${dt.getUTCDate()}${inWin(d) ? "" : "<small>outside the plan</small>"}</h3>` +
+        (list.map(e => `<div class="ev ${e.k}"><span>${span(e.a, e.b)}</span><b>${calShow === "both" && KEYS.includes(e.k) ? esc(W.people[e.k].name) + ": " : ""}${esc(e.title)}</b></div>`).join("") || '<div class="none">Nothing on.</div>');
+    }).join("")}</div>`;
+    return;
+  }
+  let H0 = Math.min(7, ...evs.map(e => Math.floor(e.a))), H1 = Math.max(22, ...evs.map(e => Math.ceil(e.b)));
+  const n = H1 - H0, pct = h => ((h - H0) / n * 100).toFixed(3) + "%";
+  const hrs = Array.from({length: n / 2 + 1}, (_, i) => H0 + i * 2).map(h => `<span style="top:${pct(h)}">${hm(h)} ${ampm(h)}</span>`).join("");
+  $("#calbody").style.cssText = "flex:1;min-height:0;display:flex;flex-direction:column";
+  $("#calbody").innerHTML = `<div class="cg ${calShow === "both" ? "both" : ""}" style="--nh:${n}"><div></div>${W.days.map(d => {
+    const dt = label(d);
+    return `<div class="dh">${dt.toLocaleDateString("en-US", {...z, weekday: "short"})}<b>${String(dt.getUTCDate()).padStart(2, "0")}</b><small>${inWin(d) ? (calShow === "both" ? "mayo · frankie" : "") : "outside plan"}</small></div>`;
+  }).join("")}<div class="hrs">${hrs}</div>${W.days.map(d => {
+    const past = d === now.day && now.h > H0 ? `<div class="past" style="height:${pct(Math.min(now.h, H1))}"></div>` : "";
+    const g = W.buffer_min / 60;
+    return `<div class="day${inWin(d) ? "" : " out"}">${past}${evs.filter(e => e.day === d).map(e => e.short
+      ? `<div class="buf" style="top:${pct(e.a - g)};height:calc(${pct(e.b + g)} - ${pct(e.a - g)})" title="${W.buffer_min} min kept clear"></div><div class="ev ${e.k}" style="top:${pct(e.a)};height:calc(${pct(e.b)} - ${pct(e.a)})" title="${esc(e.title)} ${span(e.a, e.b)}"><b>${e.short} ${span(e.a, e.b)}</b></div>`
+      : `<div class="ev ${e.k}" style="top:${pct(e.a)};height:calc(${pct(e.b)} - ${pct(e.a)})" title="${esc(e.title)} ${span(e.a, e.b)}"><b>${esc(e.title)}</b><span>${span(e.a, e.b)}</span></div>`).join("")}</div>`;
+  }).join("")}</div>`;
+}
+function openCal(k, from) {
+  calShow = k; calFrom = from || calFrom; $("#calov").classList.add("open"); document.body.classList.add("calopen");
+  if (!wide()) scrollTo(0, 0);
+  renderCal(); loadWeek();
+  $("#calx").focus({preventScroll: true});
+}
+function closeCal() {
+  if (!calShow) return;
+  calShow = null; $("#calov").classList.remove("open"); document.body.classList.remove("calopen");
+  if (calFrom) calFrom.focus({preventScroll: true}), wide() || calFrom.scrollIntoView({block: "center"});
+}
+document.querySelectorAll("[data-cal]").forEach(b => b.onclick = e => { e.stopPropagation(); openCal(b.dataset.cal, b); });
+document.querySelectorAll("[data-show]").forEach(b => b.onclick = () => { calShow = b.dataset.show; renderCal(); });
+$("#calx").onclick = closeCal;
+$("#calov").onclick = e => { if (e.target.id === "calov") closeCal(); };
+addEventListener("keydown", e => { if (e.key === "Escape") closeCal(); });
+addEventListener("resize", renderCal);
 
 // ---- answers: typed ----
 function bindTalk() {

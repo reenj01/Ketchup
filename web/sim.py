@@ -48,6 +48,7 @@ import mock_calendar  # noqa: E402
 import timing  # noqa: E402
 from gcal import PEOPLE, calendar  # noqa: E402
 from parse_plan import TZ  # noqa: E402
+SETTINGS = json.loads((ROOT / "config/settings.json").read_text())
 
 import pi_pebble as voice  # noqa: E402  (mms_text, load_mms, mms_pcm, transcribe: shared with the Pi)
 
@@ -248,6 +249,11 @@ def week(sim):
             mine.append({"start": hold["start"], "minutes": hold.get("minutes"), "title": hold.get("title"),
                          "status": hold.get("status", "tentative")})
         out["people"][key] = {"name": p["name"], "busy": busy, "ketchup": mine}
+    s = sim and sim.s
+    if s and getattr(s, "start_day", None):  # the days the agents searched, once the plan is read
+        out["window"] = [s.start_day.isoformat(), s.end_day.isoformat()]
+    out["buffer_min"] = SETTINGS["buffer_min"]
+    out["day_hours"] = SETTINGS["day"]
     return out
 
 
