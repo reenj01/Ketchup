@@ -1,9 +1,9 @@
 # Ketchup
 
-Two pocket pebbles that turn "let's catch up sometime" into a meeting on both calendars.
+Two pocket Dots that turn "let's catch up sometime" into a meeting on both calendars.
 
 "We should catch up" usually goes nowhere, because someone has to compare calendars
-and pick a time. With Ketchup, two friends tap their pebbles together, each person's
+and pick a time. With Ketchup, two friends tap their Dots together, each person's
 AI agent reads their own calendar, and the agents agree on a time and pencil it in.
 
 Built for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026), Indie track.
@@ -17,7 +17,7 @@ Built for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026), Indie 
 ## Demo
 
 - Demo video: **TODO: add link**
-- Live try-it page: [ketchup-sim on Modal](https://ireenjeang0726--ketchup-sim-web.us-east.modal.run). Two virtual pebbles: drag them together to pair, then hold to talk (or type). The model-call list shows each Meta model as it runs. The first visit can take a few seconds if the page has been idle.
+- Live try-it page: [ketchup-sim on Modal](https://ireenjeang0726--ketchup-sim-web.us-east.modal.run). Two virtual Dots: drag them together to pair, then hold to talk (or type). The model-call list shows each Meta model as it runs. The first visit can take a few seconds if the page has been idle.
 
 The demo uses two seeded mock Google Calendars, Mayo and Frankie. Judges don't need to
 log in or connect any account. The organizers allow mock data.
@@ -25,7 +25,7 @@ log in or connect any account. The organizers allow mock data.
 ## How it works
 
 ```
- Mayo's pebble ──tap──> Frankie's pebble     (two taps within 2 s = paired)
+   Mayo's Dot ───tap───>  Frankie's Dot     (two taps within 2 s = paired)
         │                       │
         ▼                       ▼
   Mayo's agent  <──negotiate──>  Frankie's agent    (Muse Spark Open)
@@ -34,10 +34,10 @@ log in or connect any account. The organizers allow mock data.
         └──> tentative event on both calendars <──┘
 ```
 
-1. **Tap.** After someone says a plan ("let's catch up Thursday"), both pebbles are
+1. **Tap.** After someone says a plan ("let's catch up Thursday"), both Dots are
    tapped together. A magnet and Hall sensor detect the tap, and the server pairs two
    taps that arrive within 2 s.
-2. **Ask.** Each pebble asks its person two questions: what time of day (morning, noon,
+2. **Ask.** Each Dot asks its person two questions: what time of day (morning, noon,
    night) and how long to meet.
 3. **Negotiate.** Each person has their own agent. It sees its person's answers and
    calendar, plus only the other person's free windows (never event titles). The agents
@@ -63,8 +63,8 @@ negotiating, and Frankie's chat. The **Ketchup** button stands in for the tap.
 |---|---|---|
 | Muse Spark Open (`meta-models/muse-spark-open-1026`) on Baseten | Main brain: parses the plan, infers habits from each calendar, runs both agents, maps free-text answers and change reasons | In the code (`brain/parse_plan.py`) |
 | Meta Model API `muse-spark-1.3` | Fallback when a Baseten call fails or returns bad JSON | In the code (`brain/parse_plan.py`) |
-| Muse Voice Transcribe (`muse-voice-transcribe-1.0`) | Speech-to-text on the pebbles (hold-to-talk) | In the code (`pebble/pi_pebble.py`) |
-| MMS-TTS (`facebook/mms-tts-eng`, Meta's open weights, CC-BY-NC 4.0) | The pebble's voice, run on the pebble itself | In the code (`pebble/pi_pebble.py`) |
+| Muse Voice Transcribe (`muse-voice-transcribe-1.0`) | Speech-to-text on the Dots (hold-to-talk) | In the code (`pebble/pi_pebble.py`) |
+| MMS-TTS (`facebook/mms-tts-eng`, Meta's open weights, CC-BY-NC 4.0) | The Dot's voice, run on the Dot itself | In the code (`pebble/pi_pebble.py`) |
 
 Every model Ketchup calls at runtime is a Meta model. Everything else is a plain OS
 feature, not a model: `arecord`/`aplay` for audio, GPIO for the LED and sensors, and
@@ -76,26 +76,26 @@ events created.
 
 ## What's real and what's simulated
 
-- **Real hardware:** Mayo's pebble is a Raspberry Pi 5 running `pebble/pi_pebble.py`, with
+- **Real hardware:** Mayo's Dot is a Raspberry Pi 5 running `pebble/pi_pebble.py`, with
   the Hall sensor tap, the RGB LED, the hold-to-talk pressure sensor, the mic and speaker,
   and MMS-TTS running on the Pi. The demo video shows it.
-- **Simulated:** Frankie's pebble (Arduino UNO Q) has no code yet. In hardware runs,
+- **Simulated:** Frankie's Dot (Arduino UNO Q) has no code yet. In hardware runs,
   Frankie is played from a laptop terminal with `scripts/frankie_terminal.py`, which taps
-  and sends typed answers to the same server endpoints a pebble uses.
-- **Without hardware:** `scripts/sim_pebble.py` runs the Pi pebble code on a laptop with
+  and sends typed answers to the same server endpoints a Dot uses.
+- **Without hardware:** `scripts/sim_pebble.py` runs the Pi Dot code on a laptop with
   mock GPIO pins and stub audio tools (see the comment at the top of the file).
 - **Proof:** every run writes a trace to `traces/` with each model call, agent turn,
   timing and the events created. Three sample traces are in the repo: a full web run
-  that ends agreed (Oct 29) and two runs from the Pi pebble on Nov 2.
+  that ends agreed (Oct 29) and two runs from the Pi Dot on Nov 2.
 
 Muse Spark Open runs on Baseten's hosted endpoint and does the real work: it parses the
 plan, infers habits from each calendar, runs both agents, and maps free-text answers.
 
 ## Privacy and listening
 
-- The pebbles are never always listening. The mic is live only while the owner holds
+- The Dots are never always listening. The mic is live only while the owner holds
   the pressure sensor (hold-to-talk).
-- Only that clip goes to Meta for transcription, and it is deleted from the pebble
+- Only that clip goes to Meta for transcription, and it is deleted from the Dot
   right after it is read. No audio is saved.
 - Agents share free windows, not event titles.
 - A person's reason for a change is never passed to the other person.
@@ -132,7 +132,7 @@ Web page (reads `.env` on its own), then open http://localhost:8000:
 
 "Dry run" is on by default, so nothing is written to the calendars.
 
-Tap server plus simulated pebble taps (export the variables above first):
+Tap server plus simulated Dot taps (export the variables above first):
 
 ```
 .venv/bin/python server/tap_server.py --dry-run     # port 8787
@@ -153,9 +153,9 @@ for t in tests/test_*.py; do .venv/bin/python "$t"; done
 
 ## Hardware
 
-Two identical pebbles, one on a Raspberry Pi 5 and one on an Arduino UNO Q. Each has a
+Two identical Dots, one on a Raspberry Pi 5 and one on an Arduino UNO Q. Each has a
 mic, a speaker, a KY-003 Hall sensor, a magnet for the tap, an RGB LED, a pressure
-sensor for hold-to-talk, and a power bank. The Pi pebble is `pebble/pi_pebble.py`
+sensor for hold-to-talk, and a power bank. The Pi Dot is `pebble/pi_pebble.py`
 (pins and run steps in `pebble/README.md`); it talks to `server/tap_server.py` over HTTP.
 
 ## Connecting real calendars
