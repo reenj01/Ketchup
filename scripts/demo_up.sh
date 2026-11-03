@@ -6,6 +6,11 @@
 #   BOTH DOTS ONLINE: ready to film
 # Usage (from the repo):  bash scripts/demo_up.sh            (extra args go to tap_server.py,
 #                         e.g. bash scripts/demo_up.sh --dry-run   to never book)
+# Live page (optional): put the web simulator's URL in .env as
+#   KETCHUP_LIVE_BASE=https://<your-modal-app>.modal.run
+# and this prints a private link to its "Connect to hardware demo" page (/live), which shows every
+# line below and every model call as it happens. A fresh session and token each run (or set
+# KETCHUP_LIVE_SESSION / KETCHUP_LIVE_TOKEN to keep one link). Leave it unset to push nothing.
 # Stop: Ctrl-C.
 cd "$(dirname "$0")/.." || exit 1
 PORT=8787
@@ -18,5 +23,12 @@ fi
 NAME=$(scutil --get LocalHostName 2>/dev/null || hostname -s)
 echo "Dots should have KETCHUP_SERVER=http://$NAME.local:$PORT in ~/ketchup-dot.env"
 echo "Power on both Dots now. Waiting for them to check in (about 30-60 s after boot)..."
+if [ -n "$KETCHUP_LIVE_BASE" ]; then
+  LIVE_BASE=${KETCHUP_LIVE_BASE%/}
+  KETCHUP_LIVE_SESSION=${KETCHUP_LIVE_SESSION:-$(openssl rand -hex 6)}
+  KETCHUP_LIVE_TOKEN=${KETCHUP_LIVE_TOKEN:-$(openssl rand -hex 24)}
+  export KETCHUP_LIVE_TOKEN KETCHUP_LIVE_URL="$LIVE_BASE/live/$KETCHUP_LIVE_SESSION"
+  echo "Live page (keep this link private, it is the password): $LIVE_BASE/live#$KETCHUP_LIVE_SESSION.$KETCHUP_LIVE_TOKEN"
+fi
 AWAKE=(); command -v caffeinate >/dev/null && AWAKE=(caffeinate -i)   # don't let the Mac sleep mid-demo
 exec "${AWAKE[@]}" "$PY" -u server/tap_server.py --port "$PORT" "$@"

@@ -50,11 +50,13 @@ log in or connect any account. The organizers allow mock data.
 3. **Hard rules in code, not just in the prompt.** At least 30 minutes free around every
    other event, a time already offered is never offered again, lengths are multiples
    of 5 minutes (30 and 45 meet at 35).
-4. **Hear it.** When a time is ready the LED goes solid white. Tap the Dot or give the
-   pressure sensor a short press and it says the time out loud.
-5. **Change by voice.** Hold the pressure sensor (the LED turns yellow) and say what you
-   want, like "no, pick a time at night". It becomes a hard constraint, and constraints
-   add up across rounds. Both Dots breathe white again while the agents find a new time
+4. **Hear it.** When a time is ready the LED breathes bright orange in and out: a time is
+   waiting for your answer. Tap the Dot (or press the Pi's pressure sensor) and it says the
+   time out loud.
+5. **Answer.** On Mayo's Pi Dot, press the pressure sensor (the LED turns yellow) and say
+   "keep it" or what you want instead. Frankie's UNO Q Dot has no mic: a short press keeps the
+   day, a 1 s hold asks for a different time. A spoken change is, for example, "no, pick a time at night". It becomes a hard constraint, and constraints
+   add up across rounds. Both Dots breathe yellow again while the agents find a new time
    (the agreed backup if it fits, otherwise a new search up to 8 weeks out). This repeats
    until you like it. The other person only hears "Mayo would prefer a different day or
    time", never your words or reason.
@@ -66,6 +68,15 @@ log in or connect any account. The organizers allow mock data.
 The live web simulator shows the same agents on one screen: both Dots, the agents'
 conversation as a chat, each person's sample calendar (See calendar), and a list of every
 Meta model call. Dragging the Dots together (or the Pair button) stands in for the tap.
+
+**Live hardware demo page.** The simulator's "Connect to hardware demo" button opens `/live`,
+which shows the real Dots as they run: what each person said, the agents' negotiation, every
+Meta model call (model, what it did, short input and output, time taken), and every line the
+Mac's tap server prints (DOT ONLINE, taps, pairing, LED colours, bookings, errors). To turn it
+on, put `KETCHUP_LIVE_BASE=<the simulator's URL>` in `.env` and run `bash scripts/demo_up.sh`.
+It prints a private link (`.../live#<session>.<token>`); the token in it is the password, so
+don't share it. The feed lives only in the simulator's memory, and the Mac blanks out anything
+that looks like a key before it leaves.
 
 ## Meta AI used
 
@@ -104,8 +115,8 @@ plan, infers habits from each calendar, runs both agents, and maps free-text ans
 
 ## Privacy and listening
 
-- The Dots are never always listening. The mic is live only while the owner holds
-  the pressure sensor (hold-to-talk).
+- The Dots are never always listening. Mayo's Pi Dot records only between two presses
+  of the pressure sensor. Frankie's UNO Q Dot has no mic at all (press to answer).
 - Only that clip goes to Meta for transcription, and it is deleted from the Dot
   right after it is read. No audio is saved.
 - Agents share free windows, not event titles.

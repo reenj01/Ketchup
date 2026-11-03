@@ -57,7 +57,8 @@ assert "seconds_left" not in v and "change_round" in v
 html = (ROOT / "web" / "sim.html").read_text()
 assert "Morning, noon, or night" not in html and "asking_time_of_day" not in html
 assert "led-red" not in html and "--led-red" not in html
-for cls in ("led-bright", "led-breathe", "led-blue", "led-yellow", "led-green"):
+for cls in ("led-bright", "led-breathe", "led-orange", "led-blue", "led-yellow", "led-green"):
     assert f".pebble.{cls}" in html, cls
+assert 'myTurn(k) ? "orange"' in html, "orange breathing on Your turn"
 assert "You and Frankie mentioned hanging out next week." in html and "let's hang out next week" in html
 print("ok: sim pairs with negotiate_first; busy polls show no stale question; page LEDs match the Dot")

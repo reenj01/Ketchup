@@ -29,6 +29,11 @@ Both pebbles are the same: mic + speaker. They:
    "DOT ONLINE ..." / "BOTH DOTS ONLINE" / "DOT OFFLINE ..." once per change.
    GET /health -> {"ok": true, "dots": {device_id: seconds since last seen}}.
 
+6. Live demo log (opt-in, server/live.py): with KETCHUP_LIVE_URL and KETCHUP_LIVE_TOKEN set
+   (scripts/demo_up.sh does it when KETCHUP_LIVE_BASE is in .env), every line printed here and
+   every model call is pushed to the web simulator's /live page. Lines include HEARD (each
+   answer a Dot sends) and LED (the LED each Dot should show for the session).
+
 States: paired -> proposing -> pencilled_in (-> proposing -> pencilled_in ...) ->
 booked | agreed (dry run, not booked) | failed.
 """
@@ -44,6 +49,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "brain"))
 import holds  # noqa: E402
+import live  # noqa: E402  (server/: opt-in feed for the "Connect to hardware demo" page)
+import timing  # noqa: E402
 from flow import Session  # noqa: E402
 from gcal import PEOPLE, calendar  # noqa: E402
 
@@ -141,6 +148,55 @@ def tap(device_id, phrase):
                 "tap_gap_s": gap}
 
 
+def heard(s, device, text, via, data):
+    """One line per answer a Dot sends (the transcript, or the press), plus the Dot's speech-to-text
+    call (timed on the Pi) in the model-call record."""
+    name = DEVICES[device].capitalize()
+    asr = data.get("asr_s")
+    print(f'HEARD {name}\'s Dot ({via}{f", speech to text {asr} s" if asr is not None else ""}): "{text[:200]}"',
+          flush=True)
+    if isinstance(asr, (int, float)):
+        token = timing.SID.set(s.sid)
+        try:
+            timing.record(kind="model", label="asr", model=str(data.get("asr_model") or "speech to text")[:60],
+                          what=f"Speech to text on {name}'s Dot", ok=True, seconds=round(asr, 2),
+                          input="(audio)", output=text[:300])
+        finally:
+            timing.SID.reset(token)
+
+
+LED_SEEN = {}  # device_id -> last LED line printed
+
+
+def dot_leds(snap):
+    """The LED each Dot should show for this session snapshot (what pebble/pi_pebble.wanted() shows
+    between its own taps, speech and flashes): printed as LED lines for the live demo log."""
+    st, q = snap.get("state"), snap.get("questions") or {}
+    out = {}
+    for dev in DEVICES:
+        if snap.get("busy") or st in ("paired", "proposing"):
+            out[dev] = "yellow breathing (agents deciding)"
+        elif st == "pencilled_in":
+            out[dev] = "orange breathing (time waiting for an answer)" if dev in q else "bright white (answered)"
+        elif st in ("booked", "agreed (dry run, not booked)"):
+            out[dev] = "green (booked)"
+        else:
+            out[dev] = "dim white"
+    return out
+
+
+def watch_leds():
+    """Print a line whenever the newest session's expected LED changes on a Dot."""
+    with lock:
+        s = list(sessions.values())[-1] if sessions else None
+    if not s:
+        return
+    for dev, led in dot_leds(snapshot(s)).items():
+        if LED_SEEN.get(dev) != (s.sid, led):
+            LED_SEEN[dev] = (s.sid, led)
+            print(f"LED {DEVICES[dev].capitalize()}'s Dot: {led} [{s.sid}]", flush=True)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj, indent=2, default=str).encode()
@@ -179,7 +235,9 @@ class Handler(BaseHTTPRequestHandler):
             s = sessions.get(parts[1])
             if not s:
                 return self._send(404, {"error": "no such session"})
-            r = s.answer(device, str(data.get("answer", "")))
+            text, via = str(data.get("answer", "")), str(data.get("via") or "answer")[:20]
+            heard(s, device, text, via, data)
+            r = s.answer(device, text)
             if r["ok"]:
                 threading.Thread(target=s.advance, daemon=True).start()
             return self._send(200 if r["ok"] else 409, {**r, "state": s.state})
@@ -212,12 +270,18 @@ def main():
         print(f"Confirmed {len(done)} hold(s): " + ", ".join(f"{h['title']} {h['start']}" for h in done))
         return
     DRY_RUN = args.dry_run
+    live.start()  # only if KETCHUP_LIVE_URL and KETCHUP_LIVE_TOKEN are set
     holds.start_timer(calendar, log=lambda m: print(m, flush=True))
     def offline_timer():
         while True:
             time.sleep(5)
             sweep_offline()
+    def led_timer():
+        while True:
+            time.sleep(0.5)
+            watch_leds()
     threading.Thread(target=offline_timer, daemon=True).start()
+    threading.Thread(target=led_timer, daemon=True).start()
     print(f"Ketchup tap server on {args.host}:{args.port} (dry run: {DRY_RUN}, "
           f"pair window: {PAIR_WINDOW:g} s)", flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()

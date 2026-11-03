@@ -100,3 +100,9 @@ with tempfile.TemporaryDirectory() as d:
     assert holds.release(None, h3["id"])["status"] == "released"
     assert holds.sweep(hold_ids="all", now=made) == []                 # released holds stay released
 print("OK: reasons parsed, constraints filter slots, backups valid, holds confirm once")
+
+# the UNO Q's long press sends a change with no reason: read by keyword (no model call), nothing to filter on
+for text in ("pick a different time", "find another time"):
+    change, c = keyword(text, REF, TODAY)
+    assert change == "yes" and not any(c.values()), (text, c)
+print("OK: the UNO Q long press ('pick a different time') is a change with no reason, by keyword")

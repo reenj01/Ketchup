@@ -5,7 +5,7 @@ server, endpoints, and environment variables, and the same lights and voice. The
 
 - **The MCU (the STM32 side)** reads the magnet sensor and the pressure pad and drives the LED. This is
   `ketchup-dot/sketch/sketch.ino`.
-- **Linux (the Qualcomm side)** handles the microphone, the speaker, the voice, and talking to the server
+- **Linux (the Qualcomm side)** handles the speaker, the voice, and talking to the server
   on the Mac. This is `unoq_dot.py`. It imports `pi_pebble.py` and runs it unchanged. Only the pins are
   swapped for Bridge calls.
 
@@ -14,7 +14,7 @@ The two halves talk over Arduino's **Bridge** (the `arduino-router` service on t
 ```
 magnet / pad ─► sketch.ino ──Bridge──► unoq_dot.py (+ pi_pebble.py) ──HTTP──► tap_server.py on the Mac
 LED          ◄─ set_led()  ◄─Bridge──┘        │
-                                    USB sound card (mic + speaker)
+                                    USB sound card (speaker; no mic is used)
 ```
 
 ## Wiring (MCU header)
@@ -30,26 +30,28 @@ LED          ◄─ set_led()  ◄─Bridge──┘        │
 
 - Dark: the Linux side isn't running yet. The sketch keeps the LED off until Linux sets it.
 - Dim white: idle.
-- Bright white: tapped, or a time is ready for you. Tap the Dot or press the pad to hear it.
+- Bright white: tapped, or you have answered and it waits on the other person.
 - Yellow breathing in and out: the agents are deciding (after the tap, and again after anyone asks
   for a change). The sketch breathes the LED itself (`breathe_rgb` over Bridge); an older sketch
   without it still breathes, with Linux stepping `set_led`.
+- Orange breathing in and out (bright orange, `PEBBLE_ORANGE`, default `255,90,0`): the agents are
+  done and a time is waiting for your answer. Tap the Dot to hear it, then answer with the pad.
 - Blue: the Dot is talking.
-- Solid bright yellow: the mic is on ("keep it", or "no, pick a time at night").
 - Green: booked on both calendars. Lasts about 60 s, then back to dim white.
 - No red.
 
-The pad has a short press and a long press (the Pi's pad is still a plain toggle):
+The UNO Q has no mic (no `arecord`, no speech to text). The pad answers the time that is waiting
+(the LED breathes orange) with one press:
 
-- **Long press** (hold 1 s, `PEBBLE_LONG_PRESS_S`): keep the proposed time. At 1 s the LED flashes
-  green and the terminal prints `LONG PRESS: keep`. A recording in progress is dropped, not sent.
-- **Short press**: never approves. With the USB card's mic (found by `arecord -l`; force it with
-  `PEBBLE_MIC=1` or `0`), it works like the Pi: hear a new time, else press once for the mic, say
-  "no, pick a time at night", press again to send. It stops on its own after 20 s, and a press
-  while the Dot is talking cuts it off. Without a mic, a short press says the time again.
+- **Short press**: keep the time. The LED flashes green, the terminal prints `SHORT PRESS: keep`,
+  and "keep it" goes to the server.
+- **Long press** (hold 1 s, `PEBBLE_LONG_PRESS_S`): find a different time. At 1 s the LED flashes
+  yellow, the terminal prints `LONG PRESS: find another time`, and both agents go back to talking
+  (both Dots breathe yellow). Mayo only hears that Frankie would like a different time.
 
-If the Dot hears nothing it says nothing: the terminal prints `MIC heard nothing, waiting` and the
-LED goes back to what it was. It is never always-listening.
+When no time is waiting (the agents are still talking, you already answered, or there's no session)
+a press does nothing except log `SHORT PRESS: ignored ...` / `LONG PRESS: ignored ...`. A press
+while the Dot is talking stops the voice.
 
 ## 1. Put the files on the board
 
@@ -110,7 +112,7 @@ It prints `Ketchup Dot pebble-frankie -> http://<mac-ip>:8787 (UNO Q, Bridge)` a
 
 All the environment variables are the same as on the Pi:
 
-- `KETCHUP_SERVER`, `PEBBLE_ID`, `PEBBLE_AUDIO`, `META_API_KEY`
+- `KETCHUP_SERVER`, `PEBBLE_ID`, `PEBBLE_AUDIO` (`META_API_KEY` isn't used here: no speech to text)
 - `PEBBLE_TTS` (`mms` or `espeak`), `PEBBLE_GREEN_S`, `PEBBLE_PHRASE`
 - `PEBBLE_ANNOUNCE` (default `tap`: a ready time is said only on a tap or press),
   `PEBBLE_SAY_CONNECTED` (default `0` here, so Frankie's Dot stays silent on pairing)
@@ -118,18 +120,18 @@ All the environment variables are the same as on the Pi:
 These are UNO Q only:
 
 - `DOT_POLL_MS`: how often the inputs are read. Default 25.
-- `PEBBLE_LONG_PRESS_S`: how long to hold the pad to keep a time. Default 1.0.
-- `PEBBLE_MIC`: `auto` (default: `arecord -l` lists the card), `1` or `0`. Decides what a short press does.
+- `PEBBLE_LONG_PRESS_S`: how long to hold the pad to find a different time. Default 1.0.
+- `PEBBLE_ORANGE`: the orange of the "time is waiting" breathing, `r,g,b` 0..255. Default `255,90,0`.
 - `APP_SOCKET`: the router socket. Default `unix:///var/run/arduino-router.sock`.
 
 ## 5. Test it
 
 1. **Magnet**: touch the magnet to the Hall sensor, then to Mayo's Dot (or `curl` its `/tap`). The LED
-   breathes yellow while the agents pick a time, then goes bright white. Tap again or press the pad
-   to hear the time (blue while it talks).
-2. **Pad**: hold the FSR for 1 s to keep the time (green flash, `LONG PRESS: keep`, the reply is
-   spoken). For a change: a short press (`MIC ON`, solid yellow), say it, short press again (`MIC OFF`).
-   A short press never keeps a time, and a bounce inside one press doesn't count twice.
+   breathes yellow while the agents pick a time, then breathes orange. Tap again to hear the time
+   (blue while it talks, then orange again).
+2. **Pad**: a short press keeps the time (green flash, `SHORT PRESS: keep`, then bright white until
+   Mayo answers). A 1 s hold finds a different time (yellow flash, `LONG PRESS: find another time`,
+   both Dots breathe yellow). A bounce inside one press doesn't count twice.
 3. A change makes both Dots breathe again until there's a new time. When both of you keep it, the LED goes green for about a minute, then dim white.
 
 **Without the board** (on the Mac, server running with `--dry-run`):
@@ -142,12 +144,12 @@ python scripts/sim_dots.py --router --old-sketch   # a sketch without breathe_rg
 python pebble/unoq/unoq_dot.py --mock     # type t = tap, p = press, r = release, q = quit
 ```
 
-`sim_dot.py` stubs out the mic, the speaker, and speech recognition. The Dot side calls no Meta APIs
+`sim_dot.py` stubs out the speaker (and, for the Pi, the mic and speech recognition). The Dot side calls no Meta APIs
 during the sim.
 
 ## Troubleshooting
 
-**No sound or no mic**
+**No sound**
 
 - `lsusb` should list the Waveshare card ("USB Audio" / "Device").
 - `arecord -l` and `aplay -l` show the card name. Set `PEBBLE_AUDIO=plughw:CARD=<name>,DEV=0` to match.

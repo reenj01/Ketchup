@@ -83,13 +83,14 @@ def _call(url, model, key_env, system, user, max_tokens):
         data = _post(url, body, headers)
     except Exception as e:
         record(kind="model", label=system.split("\n")[0][:60], model=model, ok=False,
-               seconds=round(time.perf_counter() - t0, 2), error=type(e).__name__)
+               seconds=round(time.perf_counter() - t0, 2), error=type(e).__name__, input=user[-300:])
         raise
     u = data.get("usage") or {}
     record(kind="model", label=system.split("\n")[0][:60], model=model, ok=True,
            seconds=round(time.perf_counter() - t0, 2), prompt_tokens=u.get("prompt_tokens"),
            completion_tokens=u.get("completion_tokens"),
-           reasoning_tokens=(u.get("completion_tokens_details") or {}).get("reasoning_tokens"))
+           reasoning_tokens=(u.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+           input=user[-300:], output=str((data["choices"][0]["message"].get("content") or ""))[:300])
     choice = data["choices"][0]
     message = choice["message"]
     if not message.get("content"):

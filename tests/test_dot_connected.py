@@ -131,8 +131,8 @@ def scene(say_connected):
 leds, quiet, said, tap_s, during, n_leds = scene(True)
 assert [x for _, x in quiet] == [LINE], quiet
 assert quiet[0][0] < 0.1 and tap_s < 0.1, (quiet, tap_s)  # spoken at once; the tap didn't wait for it
-assert leds == ["dim white", "bright white", "yellow breathing", "bright white",
-                "blue (talking)", "bright white"], leds
+assert leds == ["dim white", "bright white", "yellow breathing", "orange breathing",
+                "blue (talking)", "orange breathing"], leds
 assert during[0] == "bright white" and during[1] == "blue (talking)", during  # the line: white; the time: blue
 assert n_leds[0] == 2, (n_leds, leds)  # while the line played the LED stayed bright white; breathing came after
 assert said[-1][1] == "How about Tuesday at 6 PM? Want to change it?", said
@@ -140,8 +140,8 @@ print("OK Mayo's Dot:", " -> ".join(leds), "| said:", [x for _, x in said])
 
 leds, quiet, said, _, during, _ = scene(False)
 assert quiet == [], quiet
-assert leds == ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)",
-                "bright white"], leds
+assert leds == ["dim white", "bright white", "yellow breathing", "orange breathing", "blue (talking)",
+                "orange breathing"], leds
 print("OK Frankie's Dot:", " -> ".join(leds), "| said:", [x for _, x in said])
 
 # ---- the connected line plays from the PCM made at startup, not from the model ----------------

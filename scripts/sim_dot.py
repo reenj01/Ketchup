@@ -14,14 +14,16 @@ line, its LED bright white, not blue) -> a time is ready -> the owner is away fo
 hears it (with --interrupt, a second press while it talks cuts it off and opens the mic) ->
 press once (mic ON, with a 10 ms bounce that must not toggle twice), say the next line (then
 "keep" for every later time), press again (mic OFF, sent) -> ... -> booked.
-UNO Q: a short press never approves, so presses there are short (released at 0.08 s) except
-"keep": the owner holds the pad PEBBLE_LONG_PRESS_S (1.0 s) -> "LONG PRESS: keep", a green flash,
-"keep it" sent, no mic. --say lines still go through the mic (short presses; PEBBLE_MIC=1, or
---no-mic: no mic at all, short presses only say the time again, every answer is a long press).
-Prints the LED states and MIC lines the Dot logged and checks they follow
-dim white -> bright white -> yellow breathing -> bright white -> blue -> yellow (mic on) -> ...
--> green -> dim white, with one MIC ON and one MIC OFF per spoken answer and one LONG PRESS per
-UNO Q keep.
+UNO Q (no mic, arecord must never run, --say is not used): the owner taps the magnet to hear a
+time, then answers with one press: short (released at 0.08 s) = keep ("SHORT PRESS: keep", green
+flash, "keep it"); with --long-press-change N the first N answers are long presses instead (held
+PEBBLE_LONG_PRESS_S + 0.3 s: "LONG PRESS: find another time", yellow flash, "pick a different
+time", then yellow breathing while the agents pick again).
+Prints the LED states and press / MIC lines the Dot logged and checks they follow
+dim white -> bright white -> yellow breathing -> orange breathing (a time waits) -> blue ->
+orange breathing -> ... -> green -> dim white, with one MIC ON and one MIC OFF per spoken answer on
+the Pi and one SHORT / LONG PRESS line per UNO Q answer. --expect-say TEXT: some spoken line must
+contain TEXT (Mayo's Dot hearing "Frankie wants a different time").
 """
 import argparse
 import io
@@ -86,6 +88,7 @@ class Tee(io.TextIOBase):
         self.first_press = None  # seconds in, when the owner first pressed the pad
         self.said_before = None  # how many SAY lines came before that press
         self.leds_before = None  # how many LED lines came before that press
+        self.ignored = self.changes = 0  # UNO Q presses ignored; answers the server read as a change
 
     def write(self, s):
         self.buf += s
@@ -97,8 +100,12 @@ class Tee(io.TextIOBase):
                 self.says.append((round(time.monotonic() - self.t0, 1), line[5:-1]))
             if line.startswith("MIC ON") or line.startswith("MIC OFF"):
                 self.mics.append(line.split(" -")[0].strip())
-            if line.startswith("LONG PRESS: keep") or line.startswith("SHORT PRESS"):
-                self.mics.append(line.split(":")[0])
+            if line in ("SHORT PRESS: keep", "LONG PRESS: find another time"):
+                self.mics.append(line)
+            if "PRESS: ignored" in line:
+                self.ignored += 1
+            if line.startswith("ANSWER ") and "'mapped_to': 'change'" in line:
+                self.changes += 1
         return self.out.write(s)
 
     def flush(self):
@@ -116,7 +123,9 @@ def main():
     ap.add_argument("--green-s", default="6", help="how long green holds (Dot default 60)")
     ap.add_argument("--router", action="store_true", help="unoq: go through arduino-router-bridge + a fake router")
     ap.add_argument("--old-sketch", action="store_true", help="unoq: sketch without breathe_rgb(), Linux steps set_led")
-    ap.add_argument("--no-mic", action="store_true", help="unoq: PEBBLE_MIC=0, every answer is a long press")
+    ap.add_argument("--long-press-change", type=int, default=0,
+                    help="unoq: answer the first N times with a long press (find another time)")
+    ap.add_argument("--expect-say", default="", help="some spoken line must contain this")
     ap.add_argument("--interrupt", action="store_true", help="press while the Dot says the first time")
     ap.add_argument("--walk-away", type=float, default=0,
                     help="after a time is ready, stay away this long first (the Dot must stay silent)")
@@ -131,7 +140,7 @@ def main():
         (stubs / name).write_text(body.replace("%s", str(stubs)))
         (stubs / name).chmod(0o755)
     os.environ.update(PATH=f"{stubs}:{os.environ['PATH']}", KETCHUP_SERVER=args.url, PEBBLE_ID=args.owner,
-                      PEBBLE_GREEN_S=args.green_s, PEBBLE_TTS="espeak", PEBBLE_MIC="0" if args.no_mic else "1")
+                      PEBBLE_GREEN_S=args.green_s, PEBBLE_TTS="espeak")
     tee = sys.stdout = Tee(sys.stdout, time.monotonic())
 
     if args.board == "pi":
@@ -174,10 +183,10 @@ def main():
     if not pb.now["sid"]:
         raise SystemExit("never paired")
     print(f"== {args.owner}: paired", flush=True)
-    unoq, mic = args.board == "unoq", not args.no_mic
-    if args.no_mic:
+    unoq = args.board == "unoq"
+    if unoq:  # no mic on the UNO Q
         args.say, heard[:] = [], []
-    holds_, longs, cut = 0, 0, not (args.interrupt and mic)
+    holds_, longs, shorts, cut = 0, 0, 0, not (args.interrupt and not unoq)
     if args.walk_away:
         print(f"== {args.owner}: walks away", flush=True)
         deadline = time.monotonic() + 120
@@ -188,10 +197,13 @@ def main():
         time.sleep(args.walk_away)
         print(f"== {args.owner}: comes back", flush=True)
 
-    def click(bounce=False, hold=0.08):
+    def mark():  # the owner is back and touches the Dot for the first time
         if tee.first_press is None:
             tee.first_press, tee.said_before = round(time.monotonic() - tee.t0, 1), len(tee.says)
             tee.leds_before = len(tee.leds)
+
+    def click(bounce=False, hold=0.08):
+        mark()
         press()
         if bounce:  # the FSR chatters 10 ms into the press: must not count as a second press
             time.sleep(0.01); release(); time.sleep(0.01); press()
@@ -202,6 +214,30 @@ def main():
         p = pb.now["pending"]
         if not p:
             time.sleep(0.2)
+            continue
+        if unoq:  # magnet tap to hear it, then one press answers: short = keep, long = another time
+            if p != pb.now["heard"]:
+                print(f"\n== {args.owner}: taps the magnet to hear the time", flush=True)
+                mark()
+                tap()
+            t_end = time.monotonic() + 20
+            while (pb.now["heard"] != p or pb.speaking.locked()) and pb.now["pending"] == p \
+                    and time.monotonic() < t_end:
+                time.sleep(0.1)
+            time.sleep(args.wait)
+            if pb.now["pending"] != p or not pb.now["sid"]:
+                continue  # withdrawn (the other person asked for a change) or done
+            if longs < args.long_press_change:
+                print(f"\n== {args.owner}: holds the pad {unoq_dot.LONG_PRESS_S + 0.3:g} s "
+                      "(long press = find another time)", flush=True)
+                click(bounce=True, hold=unoq_dot.LONG_PRESS_S + 0.3)
+                longs += 1
+            else:
+                print(f"\n== {args.owner}: short press (keep)", flush=True)
+                click(bounce=True)
+                shorts += 1
+            while pb.now["pending"] == p and pb.now["sid"]:
+                time.sleep(0.2)
             continue
         if p != pb.now["heard"]:
             print(f"\n== {args.owner}: press to hear the time", flush=True)
@@ -219,14 +255,6 @@ def main():
             time.sleep(args.wait)
             if pb.now["pending"] != p or not pb.now["sid"]:
                 continue  # withdrawn (the other person asked for a change) or done
-            if unoq and not heard:  # keep: hold the pad, no mic
-                print(f"\n== {args.owner}: holds the pad {unoq_dot.LONG_PRESS_S + 0.3:g} s (long press = keep)",
-                      flush=True)
-                click(bounce=True, hold=unoq_dot.LONG_PRESS_S + 0.3)
-                longs += 1
-                while pb.now["pending"] == p and pb.now["sid"]:
-                    time.sleep(0.2)
-                continue
             print(f"\n== {args.owner}: presses once (mic ON)", flush=True)
             click(bounce=True)
         line = heard[0] if heard else "keep"
@@ -263,18 +291,27 @@ def main():
     if pb.SAY_CONNECTED:
         print("connected line through the stub espeak:", slow[0] if slow else "NOT SLOWED")
     # this Dot's owner asked for a change: the agents decided again right after its mic went off
-    change = ["yellow breathing"] if args.say else []
-    want = ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)",
-            *(["yellow (mic on)"] if holds_ else []), *change, "green", "dim white"]
+    O = "orange breathing"  # a time waits for this owner's answer
+    if unoq:  # long press: yellow flash, "Okay, let me look" (blue), agents again; short press: green flash
+        answers = ["yellow flash (find another time)", "yellow breathing", O] * longs + ["green flash (keep)"]
+    else:
+        answers = [*(["yellow (mic on)"] if holds_ else []), *(["yellow breathing"] if args.say else [])]
+    want = ["dim white", "bright white", "yellow breathing", O, "blue (talking)", *answers, "green", "dim white"]
     it = iter(seq)
-    mics = [m for m in tee.mics if m != "SHORT PRESS"]
-    # one press = one toggle, bounce and all; the UNO Q keeps with one long press each, the Pi by voice
-    toggles = mics == ["MIC ON", "MIC OFF"] * holds_ + ["LONG PRESS"] * longs if unoq else \
-        tee.mics == ["MIC ON", "MIC OFF"] * holds_
+    # one press = one toggle, bounce and all, on the Pi; the UNO Q: one press line per answer, no mic
+    toggles = (tee.mics == ["LONG PRESS: find another time"] * longs + ["SHORT PRESS: keep"] * shorts
+               and holds_ == 0 and tee.ignored == 0 and tee.changes == longs and shorts >= 1) if unoq else \
+        tee.mics == ["MIC ON", "MIC OFF"] * holds_ and holds_ >= 1
     if unoq:
-        print(f"UNO Q presses: {longs} long (keep), {holds_} spoken answers; lines:", ", ".join(tee.mics))
-    ok = all(w in it for w in want) and "red" not in seq and holds_ + longs >= 1 and not pb.now["rec"] and toggles \
-        and before == want_before and early == ["dim white", "bright white", "yellow breathing", "bright white"] \
+        print(f"UNO Q presses: {longs} long (find another time, {tee.changes} read as change by the server), "
+              f"{shorts} short (keep), {tee.ignored} ignored; lines:", ", ".join(tee.mics))
+    arecords = sum(x.startswith("arecord") for x in log)
+    heard_it = not args.expect_say or any(args.expect_say in x for _, x in tee.says)
+    if args.expect_say:
+        print(f'heard "{args.expect_say}":', heard_it)
+    ok = all(w in it for w in want) and "red" not in seq and not pb.now["rec"] and toggles \
+        and not (unoq and arecords) and heard_it \
+        and before == want_before and early == ["dim white", "bright white", "yellow breathing", O] \
         and bool(slow) == pb.SAY_CONNECTED and all(x.endswith("--stdout " + pb.CONNECTED_LINE) for x in slow) \
         and pb.CONNECTED_LINE == "Dots connected. We will get back to you once we are done."
     print("ALL GOOD" if ok else "SOMETHING FAILED", flush=True)

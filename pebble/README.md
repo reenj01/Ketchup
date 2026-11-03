@@ -9,9 +9,10 @@
 | Hall sensor KY-003 (S) | 17 | low when a magnet is near |
 | USB sound card | `plughw:CARD=Device,DEV=0` | mic + speaker |
 
-LED: dim white = idle; bright white = tapped, or a time is ready for you; yellow
-breathing in and out = the agents are deciding (right after the tap, and again after anyone
-asks for a change); blue = the Dot is talking; solid bright yellow = the mic is on; green =
+LED: dim white = idle; bright white = tapped, or you have answered and it waits on the other
+person; yellow breathing in and out = the agents are deciding (right after the tap, and again
+after anyone asks for a change); orange breathing in and out = the agents are done and a time is
+waiting for your answer (bright orange, `PEBBLE_ORANGE`, default `255,90,0`); blue = the Dot is talking; solid bright yellow = the mic is on; green =
 booked on both calendars (60 s, then dim white). No red.
 
 There is no question up front: tap both Dots within 5 s (the server's
@@ -19,7 +20,7 @@ There is no question up front: tap both Dots within 5 s (the server's
 background. On pairing, Mayo's Dot says "Dots connected. We will get back to you once we are done."
 slowly, with a pause after each sentence (made with MMS at startup, so it plays at once); its LED
 stays bright white while it plays, then breathes yellow. Frankie's Dot stays silent. When a time is ready the LED
-stops breathing and goes bright white, and the Dot says nothing until you tap it or press the
+breathes orange, and the Dot says nothing until you tap it or press the
 sensor to hear it ("How about Tuesday at 6 PM? ... Want to change it?"). Then answer: "keep it",
 or a change like "no, pick a time at night". A change sends both agents back to deciding,
 and once you have answered, each new time is spoken as soon as it is ready. When both
@@ -69,6 +70,7 @@ for this line only; espeak and the terminal use the written line),
 `PEBBLE_CONNECTED_PAUSE_MS` (pause between its sentences, default 450; 200 ms tail),
 `PEBBLE_CONNECTED_ESPEAK_WPM` (espeak speed for it, default 130),
 `PEBBLE_TALK_MIN_S` (after a change, breathe at least this long, default 2.5),
+`PEBBLE_ORANGE` (the "time is waiting" orange, `r,g,b`, default `255,90,0`),
 `PEBBLE_DIM` (idle brightness, default 0.12), `PEBBLE_DEBOUNCE_MS` (press debounce, default
 50), `PEBBLE_REC_MAX_S` (mic auto-stop, default 20), `PEBBLE_GAP_MS` (pause between
 sentences, default 150).
@@ -81,5 +83,6 @@ and a stub for speech recognition, against a local `tap_server.py --dry-run`.
 code): tap, the agents pick a time, Mayo presses while the Dot reads it out (the voice stops,
 the mic turns on), says "no, pick a time at night", presses again, they pick again, both keep it.
 Each press has a 10 ms bounce in it. Each Dot checks its LED went dim white, bright white,
-yellow breathing, bright white, blue, yellow (mic on), ..., green, dim white, and that every
-MIC ON has one MIC OFF. Needs `pip install gpiozero` for the Pi side.
+yellow breathing, orange breathing (a time waits), blue, orange breathing, ..., green, dim white,
+and that every MIC ON has one MIC OFF. Frankie (UNO Q) answers with the pad: short press keeps,
+a 1 s hold finds another time; `--renegotiate` tries the hold. Needs `pip install gpiozero` for the Pi side.

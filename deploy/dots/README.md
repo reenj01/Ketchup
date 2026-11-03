@@ -5,13 +5,16 @@ After a one-time install, demo day is:
 1. On the Mac, in the repo: `bash scripts/demo_up.sh`
 2. Plug in both boards (Pi and UNO Q).
 3. Wait for `BOTH DOTS ONLINE: ready to film` in the Mac terminal (about 30–90 s after power on).
+4. Optional: with `KETCHUP_LIVE_BASE` in `.env`, `demo_up.sh` also prints `Live page (keep this link
+   private, it is the password): ...`. Open it to watch every tap server line and model call live.
 
 Nothing else runs on the Mac, and nothing gets typed on the boards. Each Hall tap sends its
 own `/tap`, so touching the two Dots together (or tapping each within 5 s,
 `KETCHUP_PAIR_WINDOW_S`) pairs them. No curl is needed. On pairing both LEDs go bright white.
 Mayo's Dot says "Dots connected. We will get back to you once we are done." (still bright white), then
-breathes yellow while the agents pick a time; Frankie's Dot is silent and breathes right away. Nothing else is spoken until someone presses
-their Dot's pad (or taps it).
+breathes yellow while the agents pick a time; Frankie's Dot is silent and breathes right away. When the agents are done both Dots breathe
+orange: a time is waiting. Nothing else is spoken until someone taps their Dot (or presses the
+Pi's pad). Frankie answers with the UNO Q pad: short press keeps, a 1 s hold finds another time.
 
 ## What's in here
 
@@ -19,7 +22,7 @@ their Dot's pad (or taps it).
 |---|---|---|
 | `ketchup-dot-pi.service` | Pi: `/etc/systemd/system/ketchup-dot.service` | Starts `~/pi_pebble.py` on boot. Restarts 3 s after any exit, forever. |
 | `ketchup-dot-unoq.service` | UNO Q: `/etc/systemd/system/ketchup-dot.service` | Starts the `ketchup-dot` App (the sketch), waits for `/var/run/arduino-router.sock`, then starts `unoq_dot.py`. Same restarts. |
-| `ketchup-dot-pi.env.example` / `ketchup-dot-unoq.env.example` | `~/ketchup-dot.env` on each board (chmod 600) | `KETCHUP_SERVER`, `PEBBLE_ID`, `PEBBLE_AUDIO`, `PEBBLE_TTS`, `META_API_KEY`. The key lives only here, never in the unit or in shell history. |
+| `ketchup-dot-pi.env.example` / `ketchup-dot-unoq.env.example` | `~/ketchup-dot.env` on each board (chmod 600) | `KETCHUP_SERVER`, `PEBBLE_ID`, `PEBBLE_AUDIO`, `PEBBLE_TTS`, `META_API_KEY` (the Pi uses it for speech to text; the UNO Q has no mic). The key lives only here, never in the unit or in shell history. |
 | `dot_heartbeat.py` | Pi: `~/dot_heartbeat.py`; UNO Q: `~/ketchup/deploy/dots/` | Runs the Dot. While it's alive, it POSTs `/hello` every 5 s, so the Mac prints `DOT ONLINE`. |
 | `../../scripts/demo_up.sh` | Mac | Loads `.env`, starts the real `tap_server.py` (it books), keeps the Mac awake with `caffeinate`, and prints the check-in lines. |
 

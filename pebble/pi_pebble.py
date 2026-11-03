@@ -8,9 +8,11 @@ slower than other speech (PEBBLE_CONNECTED_RATE), with a pause after each senten
 stays bright white (not blue). The line is made with MMS at startup so it plays at once.
 Then poll GET /sessions/<id> and show it on the LED:
   dim white        = at rest (no session)
-  bright white     = tapped / paired (and while the connected line plays), a time is ready,
-                     or waiting on the other person
+  bright white     = tapped / paired (and while the connected line plays), or this owner has
+                     answered and it waits on the other person
   yellow breathing = the agents are deciding (picking or re-picking a time)
+  orange breathing = the agents are done: a time is waiting for this owner's answer (bright orange
+                     in and out, PEBBLE_ORANGE, default 255,90,0; back to it after the Dot says the time)
   blue             = the Dot (the AI agent) is talking
   solid yellow     = the mic is on (recording)
   green            = booked by both (held 60 s, then dim white)
@@ -92,13 +94,20 @@ REC_MAX_S = float(os.environ.get("PEBBLE_REC_MAX_S", 20))  # the mic turns itsel
 REC_MIN_S = 0.3  # a second press this soon after mic ON is a double hit, not "stop"
 GAP_S = float(os.environ.get("PEBBLE_GAP_MS", 150)) / 1000  # silence between spoken sentences
 ASR_URL = "https://api.meta.ai/v1/asr/transcribe"
+ASR_MODEL = "muse-voice-transcribe-1.0"
 TTS = os.environ.get("PEBBLE_TTS", "mms").lower()  # mms (falls back to espeak) | espeak
 MMS_ID = "facebook/mms-tts-eng"
 
 WHITE, DIM_WHITE, YELLOW, BLUE, GREEN, OFF = (1, 1, 1), (DIM, DIM, DIM), (1, 1, 0), (0, 0, 1), (0, 1, 0), (0, 0, 0)
+# Orange on a common-cathode RGB LED: red full, green about a third. The green die is several times
+# brighter per mA than the red one, so 255,90,0 reads orange (255,255,0 is the yellow). 0..255 each.
+ORANGE = tuple(int(v) / 255 for v in os.environ.get("PEBBLE_ORANGE", "255,90,0").split(","))
 BREATHE = "yellow breathing"  # the agents are deciding
+ORANGE_BREATHE = "orange breathing"  # a time is waiting for this owner's answer
+BREATHING = {BREATHE: YELLOW, ORANGE_BREATHE: ORANGE}  # breathing state -> its colour
+SOLID = {}  # other named solid colours: name -> rgb (the UNO Q's press flashes)
 NAMES = {WHITE: "bright white", DIM_WHITE: "dim white", YELLOW: "yellow (mic on)", BLUE: "blue (talking)",
-         GREEN: "green", OFF: "off", BREATHE: BREATHE}
+         GREEN: "green", OFF: "off", BREATHE: BREATHE, ORANGE_BREATHE: ORANGE_BREATHE}
 DONE = ("booked", "agreed (dry run, not booked)")
 TALKING = ("paired", "proposing")  # the agents are picking a time
 
@@ -127,7 +136,9 @@ def wanted():
     if now["speaking"] or now["booking"]:
         return BLUE  # talking (or about to say it's booked)
     if now["sid"]:
-        return BREATHE if now["mode"] == "talking" else WHITE
+        if now["mode"] == "talking":
+            return BREATHE
+        return ORANGE_BREATHE if now["pending"] else WHITE  # a time waits for this owner / for the other
     if now["busy"]:
         return WHITE  # tapped, waiting for the other Dot
     if time.monotonic() < now["green_until"]:
@@ -143,14 +154,15 @@ def refresh():
             return
         now["gen"] += 1
         gen, now["led"] = now["gen"], c
-        print("LED", NAMES[c], flush=True)
-        if c != BREATHE:
-            led.value = c
+        print("LED", NAMES.get(c, c), flush=True)
+        rgb = BREATHING.get(c)
+        if not rgb:
+            led.value = SOLID.get(c, c)
             return
         # the UNO Q sketch breathes on its own (led.breathe); on the Pi a thread steps the PWM
-        if getattr(led, "breathe", None) and led.breathe(BREATHE_S, YELLOW):
+        if getattr(led, "breathe", None) and led.breathe(BREATHE_S, rgb):
             return
-    threading.Thread(target=_breath, args=(gen, YELLOW), daemon=True).start()
+    threading.Thread(target=_breath, args=(gen, rgb), daemon=True).start()
 
 
 def _breath(gen, rgb):
@@ -479,7 +491,7 @@ def call(path, body=None):
 
 def transcribe(wav):
     b = uuid.uuid4().hex
-    settings = json.dumps({"model": "muse-voice-transcribe-1.0", "mode": "PUSH_TO_TALK", "audioEncoding": "WAV"})
+    settings = json.dumps({"model": ASR_MODEL, "mode": "PUSH_TO_TALK", "audioEncoding": "WAV"})
     body = (f'--{b}\r\nContent-Disposition: form-data; name="request"\r\nContent-Type: application/json\r\n\r\n'
             f'{settings}\r\n--{b}\r\nContent-Disposition: form-data; name="audio"; filename="answer.wav"\r\n'
             f'Content-Type: audio/wav\r\n\r\n').encode() + wav + f"\r\n--{b}--\r\n".encode()
@@ -607,7 +619,8 @@ def reply(wav):
     t0 = time.monotonic()
     try:
         text = transcribe(wav)
-        print(f"TIME transcribe {time.monotonic() - t0:.1f} s", flush=True)
+        asr_s = round(time.monotonic() - t0, 2)
+        print(f"TIME transcribe {asr_s:.1f} s", flush=True)
     except Exception as e:
         return heard_nothing(f"speech to text failed: {type(e).__name__}, nothing sent")
     print(f'HEARD "{text}"', flush=True)
@@ -616,7 +629,8 @@ def reply(wav):
     if not now["sid"]:
         return say("Touch Dots with a friend first.")
     t0 = time.monotonic()
-    r = call(f"/sessions/{now['sid']}/answer", {"device_id": DEVICE, "answer": text})
+    r = call(f"/sessions/{now['sid']}/answer", {"device_id": DEVICE, "answer": text, "via": "voice",
+                                                "asr_model": ASR_MODEL, "asr_s": asr_s})  # asr_*: the live demo log
     print(f"TIME server reply {time.monotonic() - t0:.1f} s", flush=True)
     print("ANSWER", {k: r.get(k) for k in ("ok", "mapped_to", "error", "state")}, flush=True)
     if not r.get("ok") and "unclear" in str(r.get("error", "")):  # the server didn't understand it

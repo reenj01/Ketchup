@@ -7,6 +7,7 @@ from contextlib import contextmanager
 CALLS = []
 _lock = threading.Lock()
 SID = contextvars.ContextVar("sid", default=None)  # the session a call belongs to (web simulator log)
+HOOKS = []  # functions called with every recorded row (server/live.py: the hardware demo feed)
 
 
 def record(**row):
@@ -14,6 +15,11 @@ def record(**row):
         row["sid"] = SID.get()
     with _lock:
         CALLS.append({"t": time.time(), **row})
+    for hook in HOOKS:
+        try:
+            hook(row)
+        except Exception:
+            pass
 
 
 @contextmanager

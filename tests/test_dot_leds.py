@@ -1,6 +1,6 @@
 """The physical Dots' LED flow and mic toggle (pi_pebble.py, also run by the UNO Q's unoq_dot.py):
 dim white at rest -> bright white on the tap -> yellow breathing while the agents decide ->
-bright white when a time is ready -> blue while the Dot talks -> solid yellow while the mic is
+orange breathing while a time waits for the owner -> blue while the Dot talks (then orange again) -> solid yellow while the mic is
 on (press once = on, press again = off and send; 50 ms debounce; auto-stop) -> yellow breathing
 again after a change -> green when booked, then dim white. A press while the Dot talks stops the
 voice and opens the mic. MMS silence trimming. Also: the tap server answers polls while the agents
@@ -136,9 +136,10 @@ def flow(board=None):
     return leds, mics, said
 
 
-want = ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)", "bright white",
-        "yellow (mic on)", "bright white", "blue (talking)", "yellow breathing", "bright white",
-        "blue (talking)", "bright white", "blue (talking)", "green", "dim white"]
+O = "orange breathing"  # a time waits for this owner's answer
+want = ["dim white", "bright white", "yellow breathing", O, "blue (talking)", O,
+        "yellow (mic on)", O, "blue (talking)", "yellow breathing", O,
+        "blue (talking)", O, "blue (talking)", "green", "dim white"]
 leds, mics, said = flow()
 assert leds == want, leds
 assert said[1:] == ["Got it, I'll look at night.", "You said at night. How about Wednesday at 8 PM? Want to change it?",
@@ -149,10 +150,12 @@ print("OK mic toggle:", mics, "(the bounce inside the press made no extra toggle
 board = unoq_dot.FakeBoard()
 leds, _, _ = flow(board)
 assert leds == want, leds
-assert [w for w in board.writes if w[0] == "breathe"] == [("breathe", 3000, 255, 255, 0)] * 2, board.writes
+breaths = [w for w in board.writes if w[0] == "breathe"]
+assert breaths.count(("breathe", 3000, 255, 255, 0)) == 2 and breaths.count(("breathe", 3000, 255, 90, 0)) == 5, breaths
+assert len(breaths) == 7, breaths
 assert board.writes[-1] == (31, 31, 31) and (255, 255, 0) in board.writes and (0, 0, 255) in board.writes
 assert (0, 255, 0) in board.writes and (255, 255, 255) in board.writes
-print("OK UNO Q LED flow: the sketch breathes yellow on its own:", board.writes)
+print("OK UNO Q LED flow: the sketch breathes yellow and orange on its own:", board.writes)
 
 old = unoq_dot.FakeBoard()
 real = old.call

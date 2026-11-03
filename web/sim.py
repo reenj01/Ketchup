@@ -53,6 +53,7 @@ import flow  # noqa: E402
 import holds  # noqa: E402
 import mock_calendar  # noqa: E402
 import timing  # noqa: E402
+import live_store  # noqa: E402  (web/: the "Connect to hardware demo" feed)
 from gcal import PEOPLE, calendar  # noqa: E402
 from parse_plan import TZ  # noqa: E402
 SETTINGS = json.loads((ROOT / "config/settings.json").read_text())
@@ -259,8 +260,8 @@ def week(sim):
 
 class Handler(classic.Handler):
     def log_message(self, fmt, *args):
-        if self.command == "GET" and ("/api/" in self.path):
-            return
+        if (self.command == "GET" and "/api/" in self.path) or self.path.startswith("/live/"):
+            return  # polled / pushed every second
         sys.stderr.write(f"{self.command} {self.path}\n")
 
     def raw(self, limit):
@@ -277,7 +278,14 @@ class Handler(classic.Handler):
             return self.send(200, (HERE / "sim.html").read_bytes(), "text/html; charset=utf-8")
         if u.path in ("/classic", "/classic/"):
             return self.send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if u.path in ("/live", "/live/"):
+            return self.send(200, (HERE / "live.html").read_bytes(), "text/html; charset=utf-8")
         parts = u.path.strip("/").split("/")
+        if len(parts) == 2 and parts[0] == "live":
+            since = q.get("since", ["0"])[0]
+            code, out = live_store.get(parts[1], self.headers.get("X-Live-Token", ""),
+                                       int(since) if since.isdigit() else 0)
+            return self.send(code, out)
         if parts[:3] == ["sim", "api", "session"] and len(parts) == 4:
             sim = SIMS.get(parts[3])
             if not sim:
@@ -296,6 +304,16 @@ class Handler(classic.Handler):
     def do_POST(self):
         u = urlparse(self.path)
         parts = u.path.strip("/").split("/")
+        if len(parts) == 2 and parts[0] == "live":  # the Mac tap server's feed (server/live.py)
+            body = self.raw(live_store.MAX_BODY)
+            if body is None:
+                return self.send(413, {"error": "too big"})
+            try:
+                events = json.loads(body or b"{}").get("events")
+            except (ValueError, AttributeError):
+                return self.send(400, {"error": "body must be JSON {\"events\": [...]}"})
+            code, out = live_store.post(parts[1], self.headers.get("X-Live-Token", ""), events, describe=what_it_did)
+            return self.send(code, out)
         if parts == ["api", "start"]:  # the classic page: same session cap
             prune()
             if sum(v.live() for v in SIMS.values()) >= MAX_SESSIONS:

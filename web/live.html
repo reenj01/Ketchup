@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Ketchup · Hardware demo, live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- same fonts and colours as the simulator (sim.html): all SIL Open Font License, served by Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Serif:ital@0;1&family=Space+Mono:wght@400;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet">
+<style>
+/* the real Dots, live: everything the Mac tap server prints and every model call, pushed by
+   server/live.py to /live/<session>. The link from demo_up.sh carries #<session>.<token>; the
+   fragment never leaves the browser except as the X-Live-Token header on our own polls. */
+:root{
+  --ink:#1d1b22; --soft:#6d6a75; --faint:#b0adb6; --line:#1d1b22; --hair:#ebe8ef; --bg:#fff;
+  --orange:#ff6a2b; --pink:#ffb3cf; --peri:#8f8cf5; --yellow:#ffdd4a; --green:#7fd49b;
+  --serif:"Instrument Serif",Georgia,serif; --mono:"Space Mono",ui-monospace,monospace; --display:"Bricolage Grotesque","DM Sans",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"DM Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+.wrap{max-width:1640px;margin:0 auto;padding:22px clamp(18px,3vw,56px) 40px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.brand{font-family:var(--display);font-weight:800;font-size:19px;letter-spacing:-.02em}
+.brand i{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--orange);margin-right:8px}
+.link{background:none;border:0;padding:4px 0;color:var(--soft);cursor:pointer;font-size:14px;text-decoration:none}
+.pill{border:1.5px solid var(--ink);border-radius:999px;padding:6px 14px;color:var(--ink);font-weight:500}
+.pill:hover{background:var(--yellow)}
+h1{font-family:var(--display);font-size:clamp(40px,7vh,72px);line-height:.9;letter-spacing:-.045em;margin:26px 0 6px;font-weight:800;color:var(--orange)}
+.sub{color:var(--soft);font-size:15px}
+.conn{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:4px 10px;border-radius:999px;border:1.5px solid var(--hair);color:var(--soft)}
+.conn.on{background:var(--green);border-color:var(--green);color:var(--ink)}
+.conn.bad{background:#ffd9cc;border-color:#ffd9cc;color:#c2381a}
+h2{font-family:var(--serif);font-weight:400;font-size:28px;line-height:1.05;margin:0 0 10px;letter-spacing:-.01em}
+h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
+.dots{display:grid;grid-template-columns:1fr 1fr;border:1.5px solid var(--line);border-radius:22px;margin:22px 0 26px}
+.dotc{padding:16px 20px;display:flex;align-items:center;gap:14px}
+.dotc + .dotc{border-left:1.5px solid var(--line)}
+.dotc .name{font-family:var(--serif);font-size:26px}
+.dotc .led{font-size:14px;color:var(--soft)}
+.lamp{width:22px;height:22px;border-radius:50%;background:#f1f0f3;box-shadow:0 0 0 1.5px #dcd9e0;flex:none}
+.lamp.yellow{background:#f7c948;animation:b 3s ease-in-out infinite}
+.lamp.orange{background:#ff7828;box-shadow:0 0 10px 4px rgba(255,120,40,.7);animation:b 3s ease-in-out infinite}
+.lamp.white{background:#fff;box-shadow:0 0 0 1.5px #cfccd6,0 0 9px 3px rgba(196,194,214,.9)}
+.lamp.green{background:#6ebe82;box-shadow:0 0 8px 3px rgba(110,190,130,.6)}
+@keyframes b{50%{opacity:.25}}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(22px,2.6vw,48px)}
+.panel{min-width:0}
+.box{border:1.5px solid var(--line);border-radius:16px;padding:10px 14px;height:clamp(220px,34vh,420px);overflow:auto}
+.box .empty{color:var(--faint);font-size:14px}
+/* same chat bubbles as the simulator's "the talk" */
+.notes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.notes li{font-size:14px;line-height:1.38}
+.bub{display:inline-block;padding:5px 12px 6px;border-radius:16px;border:1.5px solid var(--ink)}
+.bub .who{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;opacity:.75}
+.human .bub{background:var(--pink)}
+.agent .bub{background:var(--peri);color:#fff;border-color:var(--peri)}
+.sys .bub{border-color:var(--hair);background:#f6f5fa}
+.sys.pencil .bub{background:var(--yellow);border-color:var(--yellow)}
+.sys.done .bub{background:var(--green);border-color:var(--green)}
+/* same table as the simulator's "models" */
+.calls{width:100%;border-collapse:collapse}
+.calls td{padding:6px 10px 6px 0;border-bottom:1px solid var(--hair);vertical-align:top;font-size:13px}
+.calls td.m{white-space:nowrap}
+.calls td.m em{font-style:normal;font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid var(--ink)}
+.calls td.s{text-align:right;white-space:nowrap;font-family:var(--mono);font-size:12px}
+.calls .io{display:block;color:var(--soft);font-size:12px;margin-top:2px;word-break:break-word}
+.calls tr.fail td{color:#c2381a}
+.term{font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;background:#1d1b22;color:#ebe8ef;border-color:#1d1b22}
+.term .online{color:#7fd49b}.term .led{color:#ffb27a}.term .heard{color:#ffb3cf}.term .err{color:#ff8f70}.term .book{color:#ffdd4a}.term .t{color:#6d6a75}
+.form{margin:30px 0;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.form input{flex:1;min-width:260px;border:0;border-bottom:1.5px solid var(--hair);padding:8px 2px;outline:none;font-family:var(--mono);font-size:13px}
+.btn{border:1.5px solid var(--ink);border-radius:999px;padding:9px 20px;font-weight:700;cursor:pointer;background:var(--ink);color:#fff;box-shadow:3px 3px 0 var(--ink)}
+.err{color:#c2381a;font-size:13.5px}
+@media (max-width:899px){.grid{grid-template-columns:1fr}.dots{grid-template-columns:1fr}.dotc + .dotc{border-left:0;border-top:1.5px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><i></i>Ketchup</div>
+    <span><span class="conn" id="conn">not connected</span> <a class="link pill" href="/">Simulator</a></span>
+  </header>
+  <h1>The real Dots, live.</h1>
+  <div class="sub">Everything the Mac tap server prints and every model call, as it happens. Keys never leave the Mac.</div>
+
+  <div id="connect" class="form" style="display:none">
+    <input id="code" placeholder="Paste the live link (or session.token) that scripts/demo_up.sh printed" autocomplete="off">
+    <button class="btn" id="go">Connect</button>
+    <div class="err" id="cerr"></div>
+  </div>
+
+  <div id="feed" style="display:none">
+    <section class="dots">
+      <div class="dotc"><span class="lamp" id="lamp-mayo"></span><div><div class="name">Mayo</div><div class="led" id="led-mayo">no news yet</div></div></div>
+      <div class="dotc"><span class="lamp" id="lamp-frankie"></span><div><div class="name">Frankie</div><div class="led" id="led-frankie">no news yet</div></div></div>
+    </section>
+    <div class="grid">
+      <div class="panel"><h2>the talk <i>( 01 )</i></h2><div class="box" id="talk-box"><ul class="notes" id="talk"><li class="empty">Nothing yet. Touch the Dots together.</li></ul></div></div>
+      <div class="panel"><h2>models <i>( 02 )</i></h2><div class="box" id="calls-box"><table class="calls" id="calls"><tr><td class="empty">No model calls yet.</td></tr></table></div></div>
+      <div class="panel" style="grid-column:1/-1"><h2>tap server <i>( 03 )</i></h2><div class="box term" id="term"></div></div>
+    </div>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const at = t => new Date(t * 1000).toLocaleTimeString("en-US", {hour12: false, timeZone: "America/New_York"});
+let sid = "", tok = "", next = 0, timer = null, fails = 0;
+
+function parse(s) {  // a full link, "#session.token" or "session.token"
+  s = (s || "").trim(); s = s.includes("#") ? s.split("#").pop() : s;
+  const m = s.match(/^([A-Za-z0-9]{6,40})\.([A-Za-z0-9_-]{32,128})$/);
+  return m && {sid: m[1], tok: m[2]};
+}
+function start(c) {
+  sid = c.sid; tok = c.tok; next = 0;
+  history.replaceState(null, "", "#" + sid + "." + tok);
+  $("#connect").style.display = "none"; $("#feed").style.display = "";
+  poll();
+}
+function stick(box, fn) {  // keep a box scrolled to the bottom if it was there
+  const end = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  fn(); if (end) box.scrollTop = box.scrollHeight;
+}
+function conn(text, cls) { const c = $("#conn"); c.textContent = text; c.className = "conn " + (cls || ""); }
+
+async function poll() {
+  clearTimeout(timer);
+  try {
+    const r = await fetch(`/live/${sid}?since=${next}`, {headers: {"X-Live-Token": tok}, cache: "no-store"});
+    const d = await r.json();
+    if (r.status === 403 || r.status === 400) { conn("wrong link", "bad"); return showForm(d.error); }
+    if (!r.ok) throw new Error(d.error || r.status);
+    fails = 0;
+    conn(d.waiting ? "waiting for the tap server" : "live", d.waiting ? "" : "on");
+    d.events.forEach(show);
+    next = Math.max(next, d.next || 0);
+  } catch (e) { conn(++fails > 3 ? "can't reach the site" : "reconnecting", fails > 3 ? "bad" : ""); }
+  timer = setTimeout(poll, 1000);
+}
+
+const AGENT = /^\[([0-9a-f]{8})\] (.*)$/;
+function show(e) {
+  if (e.kind === "model") return call(e);
+  const line = e.text || "";
+  stick($("#term"), () => {
+    const cls = /^DOT (ON|OFF)LINE|^BOTH DOTS/.test(line) ? "online" : /^LED /.test(line) ? "led" : /^HEARD /.test(line) ? "heard"
+      : /error|Traceback|failed|Exception/i.test(line) ? "err" : /book|confirm|pencil/i.test(line) ? "book" : "";
+    $("#term").insertAdjacentHTML("beforeend", `<div class="${cls}"><span class="t">${at(e.t)}</span> ${esc(line)}</div>`);
+  });
+  let m;
+  if ((m = line.match(/^LED (Mayo|Frankie)'s Dot: (.*?) \[/))) {
+    const k = m[1].toLowerCase(), led = m[2];
+    $("#led-" + k).textContent = led;
+    $("#lamp-" + k).className = "lamp " + (/^yellow/.test(led) ? "yellow" : /^orange/.test(led) ? "orange"
+      : /^bright white/.test(led) ? "white" : /^green/.test(led) ? "green" : "");
+  } else if ((m = line.match(/^HEARD (Mayo|Frankie)'s Dot \(([^)]*)\): "(.*)"$/))) {
+    note("human", `${m[1]} · ${m[2]}`, m[3]);
+  } else if ((m = line.match(AGENT))) {  // the session's own log: agent turns and milestones; listings stay in the terminal
+    const text = m[2].trim(), r = text.match(/^\[round (\d+)\] ((?:Mayo|Frankie)'s agent) (.*)$/);
+    if (r) note("agent", `${r[2]} · round ${r[1]}`, r[3]);
+    else if (/^(Heard:|Plan |Nudge:|Agreed:|Pencilled in|Booked|Confirmed)|Dot says:|Dots say:|wants a change|^Backup/.test(text))
+      note(/^Pencilled/.test(text) ? "sys pencil" : /^(Booked|Confirmed)/.test(text) ? "sys done" : "sys", "", text);
+  }
+}
+function note(cls, who, text) {
+  const ul = $("#talk"); ul.querySelector(".empty")?.remove();
+  stick($("#talk-box"), () => ul.insertAdjacentHTML("beforeend",
+    `<li class="${cls}"><span class="bub">${who ? `<span class="who">${esc(who)}</span>` : ""}${esc(text)}</span></li>`));
+}
+function call(e) {
+  const t = $("#calls"); t.querySelector(".empty")?.parentElement.remove();
+  const io = [e.in && `in: ${e.in}`, e.out && `out: ${e.out}`, e.error && `error: ${e.error}`].filter(Boolean).map(esc).join("<br>");
+  stick($("#calls-box"), () => t.insertAdjacentHTML("beforeend",
+    `<tr class="${e.ok === false ? "fail" : ""}"><td class="m"><em>${esc(e.model)}</em><br><span class="io">${at(e.t)}</span></td>` +
+    `<td>${esc(e.what || e.label)}<span class="io">${io}</span></td><td class="s">${Number(e.seconds || 0).toFixed(2)} s</td></tr>`));
+}
+function showForm(err) {
+  clearTimeout(timer);
+  $("#feed").style.display = "none"; $("#connect").style.display = "flex";
+  $("#cerr").textContent = err || "";
+}
+$("#go").onclick = () => { const c = parse($("#code").value); c ? start(c) : showForm("That isn't a live link."); };
+$("#code").onkeydown = e => { if (e.key === "Enter") $("#go").click(); };
+const c = parse(location.hash);
+c ? start(c) : showForm("");
+</script>
+</body>
+</html>

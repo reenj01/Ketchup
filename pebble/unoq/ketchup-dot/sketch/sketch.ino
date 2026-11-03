@@ -7,14 +7,17 @@
 //
 // Bridge functions (Linux calls them with Bridge.call):
 //   set_led(r, g, b)  0..255 each, PWM (D3/D5/D6 are PWM pins). Solid colour; stops a breath.
-//   breathe_rgb(ms, r, g, b)  breathing in colour r,g,b (yellow while the agents decide): one
+//   breathe_rgb(ms, r, g, b)  breathing in colour r,g,b (yellow while the agents decide, orange
+//                     255,90,0 while a time waits for the owner's answer): one
 //                     breath every ms (1 -> 0.1 -> 1, a cosine, the same curve pi_pebble.breath_level
 //                     uses), run here in loop() so it stays smooth without Bridge traffic. Ends on
 //                     the next set_led.
 //   breathe(ms)       the same in white (older Linux side).
-// LED meaning (set by Linux): dim white = at rest, bright white = tapped / a time is ready,
-// yellow breathing = agents deciding, blue = the Dot is talking, solid yellow = mic on,
-// green = booked (60 s, then dim white).
+// LED meaning (set by Linux): dim white = at rest, bright white = tapped / paired / waiting on the
+// other person, yellow breathing = agents deciding, orange breathing = a time waits for the owner
+// (short press = keep, long press = find another time), blue = the Dot is talking,
+// a short green / yellow flash = a press counted (keep / another time),
+// green = booked (60 s, then dim white). No mic on the UNO Q.
 //   get_inputs()      -> taps * 2 + pressed. taps = Hall taps counted since boot (debounced, never
 //                        missed between polls); pressed = 1 while the FSR is held (debounced)
 // Both use provide_safe: they run in loop() context, so analogWrite/digitalRead are safe there.

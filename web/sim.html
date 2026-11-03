@@ -14,7 +14,7 @@
 :root{
   --ink:#1d1b22; --soft:#6d6a75; --faint:#b0adb6; --line:#1d1b22; --hair:#ebe8ef; --bg:#fff;
   --orange:#ff6a2b; --pink:#ffb3cf; --peri:#8f8cf5; --peri-ink:#3d39b8; --yellow:#ffdd4a; --green:#7fd49b; --green-ink:#1f6b3a;
-  --led-yellow:247,201,72; --led-white:196,194,214; --led-blue:84,140,240; --led-green:110,190,130;
+  --led-yellow:247,201,72; --led-white:196,194,214; --led-blue:84,140,240; --led-green:110,190,130; --led-orange:255,120,40;
   --serif:"Instrument Serif",Georgia,serif; --mono:"Space Mono",ui-monospace,monospace; --display:"Bricolage Grotesque","DM Sans",sans-serif;
 }
 *{box-sizing:border-box}
@@ -63,9 +63,11 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 .pebble::after{content:"";position:absolute;inset:-16px;border-radius:50%;opacity:0;transition:opacity .6s ease, background .6s ease}
 .pebble.led-yellow::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-yellow),.45) 52%,rgba(var(--led-yellow),0) 72%)}
 /* the Dot's LED, as on the hardware: dim white = at rest, bright white = tap/pair, yellow breathing = the agents
-   are deciding, blue = an agent is talking, solid bright yellow = the mic is recording, green = booked (then dim white) */
+   are deciding, orange breathing = a time is waiting for this person's answer ("Your turn"), blue = an agent is
+   talking, solid bright yellow = the mic is recording, green = booked (then dim white) */
 .pebble.led-bright::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-white),.6) 52%,rgba(var(--led-white),0) 72%)}
 .pebble.led-breathe::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-yellow),.45) 52%,rgba(var(--led-yellow),0) 72%);animation:breathe 3s ease-in-out infinite}
+.pebble.led-orange::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-orange),.6) 52%,rgba(var(--led-orange),0) 72%);animation:breathe 3s ease-in-out infinite}
 .pebble.led-blue::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-blue),.4) 52%,rgba(var(--led-blue),0) 72%)}
 .pebble.led-yellow::after{background:radial-gradient(circle,rgba(var(--led-yellow),.6) 52%,rgba(var(--led-yellow),0) 72%)}
 .pebble.led-green::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-green),.45) 52%,rgba(var(--led-green),0) 72%)}
@@ -73,6 +75,7 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 .pebble .dot{position:absolute;z-index:2;left:50%;top:50%;width:10px;height:10px;margin:-5px;border-radius:50%;background:#f1f0f3;box-shadow:0 0 0 1.5px #dcd9e0;transition:background .6s,box-shadow .6s}
 .pebble.led-bright .dot{background:#fff;box-shadow:0 0 0 1.5px #cfccd6,0 0 9px 3px rgba(var(--led-white),.9)}
 .pebble.led-breathe .dot{background:rgb(var(--led-yellow));animation:dotbreathe 3s ease-in-out infinite}
+.pebble.led-orange .dot{background:rgb(var(--led-orange));box-shadow:0 0 8px 3px rgba(var(--led-orange),.8);animation:dotbreathe 3s ease-in-out infinite}
 .pebble.led-blue .dot{background:rgb(var(--led-blue));box-shadow:0 0 6px 2px rgba(var(--led-blue),.6)}
 .pebble.led-yellow .dot{background:rgb(var(--led-yellow));box-shadow:0 0 8px 3px rgba(var(--led-yellow),.8)}
 .pebble.led-green .dot{background:rgb(var(--led-green));box-shadow:0 0 6px 2px rgba(var(--led-green),.6)}
@@ -334,7 +337,8 @@ footer .link{font-size:12.5px;padding:0}
 <div class="wrap">
   <header>
     <div class="brand"><i></i>Ketchup</div>
-    <button class="link pill" id="reset">New session</button>
+    <span><a class="link pill" id="hwdemo" href="/live" target="_blank" rel="noopener">Connect to hardware demo</a>
+      <button class="link pill" id="reset">New session</button></span>
   </header>
 
   <section class="hero">
@@ -541,7 +545,8 @@ function led(k) {
   if (Date.now() < flashUntil) return "bright";            // tap / pair
   if (!sid || !view) return "dim";
   if (DONE.includes(view.state)) return Date.now() - bookedAt < GREEN_MS ? "green" : "dim";
-  return TALKING.includes(view.state) ? "breathe" : "dim"; // yellow breathing while the agents decide
+  if (TALKING.includes(view.state)) return "breathe";     // yellow breathing while the agents decide
+  return myTurn(k) ? "orange" : "dim";                     // orange breathing: a time waits for this person
 }
 // a time is pencilled in and this Dot is waiting for "keep it" or a change
 const myTurn = k => !!(sid && view && view.state === "pencilled_in" && (view.pebbles[k] || {}).question && !busy[k]);
@@ -550,7 +555,7 @@ function render() {
   const st = view ? view.state : "idle";
   for (const k of KEYS) {
     const el = $("#peb-" + k), l = led(k), p = (view && view.pebbles[k]) || {};
-    el.classList.remove("led-bright", "led-breathe", "led-blue", "led-yellow", "led-green");
+    el.classList.remove("led-bright", "led-breathe", "led-orange", "led-blue", "led-yellow", "led-green");
     if (l !== "dim") el.classList.add("led-" + l);
     const turn = myTurn(k), canTalk = turn && !recording;
     const tag = !sid ? ["", "Ready"] : DONE.includes(st) ? ["ok", "Booked"] : busy[k] ? ["", "Listening…"]
