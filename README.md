@@ -2,6 +2,8 @@
 
 Two pocket Dots that turn "let's catch up sometime" into a meeting on both calendars.
 
+**Try it live:** [Ketchup simulator](https://ireenjeang0726--ketchup-sim-web.us-east.modal.run). No login needed. Use See calendar to check the sample calendars the agents read.
+
 "We should catch up" usually goes nowhere, because someone has to compare calendars
 and pick a time. With Ketchup, two friends tap their Dots together, each person's
 AI agent reads their own calendar, and the agents agree on a time and pencil it in.
