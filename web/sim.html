@@ -44,7 +44,6 @@ h1{font-family:var(--display);font-size:1em;line-height:.9;letter-spacing:-.045e
 .col{min-width:0;display:flex;flex-direction:column}
 .status{min-height:62px}
 .status .now{display:block;font-family:var(--serif);font-size:30px;line-height:1.05;letter-spacing:-.01em}
-.status .intro{display:block;font-size:13px;line-height:1.35;color:var(--ink);margin-bottom:6px;max-width:34em;text-wrap:pretty}
 .status .hint{display:block;color:var(--soft);font-size:14px;margin-top:4px;line-height:1.35}
 
 /* section titles, ticket-style: "the plan ( 02 )" */
@@ -337,12 +336,12 @@ footer .link{font-size:12.5px;padding:0}
     <svg class="squiggle" viewBox="0 0 340 120" fill="none" aria-hidden="true"><path d="M8 84c30-46 52-62 66-46s-8 52 14 52 36-74 62-72 2 64 30 66 34-70 62-68 6 58 34 56 40-40 56-52" stroke="#8f8cf5" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <svg class="star" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 2l4 12 12-4-8 10 8 10-12-4-4 12-4-12-12 4 8-10-8-10 12 4z" fill="#ffdd4a" stroke="#1d1b22" stroke-width="1.5" stroke-linejoin="round"/></svg>
     <h1>Let's catch up.</h1>
-    <div class="plan">Mayo says “<input id="phrase" value="let's catch up this week" maxlength="120" aria-label="What Mayo says">”</div>
+    <div class="plan">You and Frankie mentioned hanging out next week. Ketchup will help you make it happen!</div>
   </section>
 
   <main class="stage">
     <div class="col">
-      <div class="status"><span class="intro" id="intro">You and Frankie mentioned hanging out next week. Ketchup will help you make it happen!</span><span class="now" id="now">Touch the Dots together.</span><span class="hint" id="hint">Drag one onto the other, or tap Pair.</span></div>
+      <div class="status"><span class="now" id="now">Touch the Dots together.</span><span class="hint" id="hint">Drag one onto the other, or tap Pair.</span></div>
       <section class="pair" id="stage">
         <button class="btn orange pairbtn" id="tapbtn">Pair</button>
         <div class="side" id="side-mayo">
@@ -429,10 +428,6 @@ function pair() {
   setTimeout(() => { KEYS.forEach(k => { $("#peb-" + k).style.transform = ""; $("#peb-" + k).classList.remove("flying"); }); start(); }, 520);
 }
 $("#tapbtn").onclick = pair;
-const measure = document.createElement("canvas").getContext("2d");
-const fitPhrase = () => { const i = $("#phrase"); measure.font = getComputedStyle(i).font; i.style.width = Math.ceil(measure.measureText(i.value || "something").width + 6) + "px"; };
-document.fonts && document.fonts.ready.then(fitPhrase);
-$("#phrase").addEventListener("input", fitPhrase); fitPhrase();
 
 // ---- session ----
 async function api(path, opts = {}) {
@@ -444,7 +439,7 @@ const post = (path, data) => api(path, {method: "POST", headers: {"Content-Type"
 async function start() {
   calSeen = false; errs = {mayo: "", frankie: "", global: ""};
   $("#tapbtn").disabled = true;
-  const r = await post("/sim/api/tap", {phrase: $("#phrase").value, replaces: sid});
+  const r = await post("/sim/api/tap", {phrase: "let's hang out next week", replaces: sid});
   $("#tapbtn").disabled = false;
   if (!r.ok) { errs.global = r.body.error || "Couldn't start. Try again in a moment."; return render(); }
   sid = r.body.session_id; lineCount = 0; typeOpen = {mayo: false, frankie: false};
@@ -593,10 +588,8 @@ function render() {
   }
   if (errs.global) hint = errs.global;
   $("#now").textContent = now; $("#hint").textContent = hint;
-  $("#intro").style.display = sid ? "none" : "";  // the intro line is for the start screen only
   $("#tapbtn").style.display = sid && !isOver() ? "none" : "";
   $("#tapbtn").textContent = sid ? "Pair again" : "Pair";
-  $("#phrase").disabled = !!sid && !isOver();
   $("#skip").style.display = st === "pencilled_in" ? "" : "none";
   nudgeCal(); renderCard(); renderCalls();
 }
@@ -648,7 +641,7 @@ function fitCalls() {
   for (const r of rows) { r.classList.add("hid"); n++; more.innerHTML = `<td colspan="3">+ ${n} earlier</td>`; if (!over()) break; }
 }
 document.addEventListener("click", e => { const box = $("#calls-box"); if (box.open && !box.contains(e.target)) box.open = false; });
-addEventListener("resize", () => { fitPhrase(); fitNotes(); renderCalls(); });
+addEventListener("resize", () => { fitNotes(); renderCalls(); });
 
 // ---- week: big numerals, the hold as one block ----
 async function loadWeek() {
