@@ -20,8 +20,9 @@ MAX_LIVE = 8
 IDLE_S = 2 * 3600
 MAX_BODY = 256 * 1024
 SID = re.compile(r"^[A-Za-z0-9]{6,40}$")
-FIELDS = {"kind", "t", "text", "model", "label", "what", "seconds", "ok", "error", "in", "out"}
-KINDS = {"log", "model"}
+FIELDS = {"kind", "t", "text", "model", "label", "what", "seconds", "ok", "error", "in", "out",
+          "status", "start", "minutes", "title", "slot", "session", "until"}
+KINDS = {"log", "model", "plan"}  # plan: the time on the calendar (pencilled or booked), for the live page
 
 _lock = threading.Lock()
 _live = {}  # session -> {"hash", "events": deque, "seq", "touched"}

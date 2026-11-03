@@ -89,23 +89,41 @@ timing.record(kind="model", label="You are a scheduling agent. Someone said a pl
 ts.sessions.clear()
 
 
+START = "2026-11-06T18:00:00-05:00"
+
+
 class Fake:
     sid, state = "abcd1234", "pencilled_in"
     lock = threading.Lock()
+    hold = {"minutes": 45, "title": "Mayo + Frankie: catch up", "start": START}
 
     def public(self):
-        return {"state": self.state, "questions": {"pebble-mayo": {"say": "How about..."}}}
+        return {"state": self.state, "questions": {"pebble-mayo": {"say": "How about..."}},
+                "proposal": {"slot": "Fri Nov 6, 6:00 PM ET", "start": START},
+                "hold": {"status": "tentative", "deadline_text": "tonight at 10 PM"}}
+
+
+class Booked(Fake):
+    state = "booked"
+
+    def public(self):
+        return {"state": self.state, "agreed_slot": {"slot": "Fri Nov 6, 6:00 PM ET", "start": START},
+                "hold": {"status": "confirmed"}}
 
 
 ts.sessions["abcd1234"] = Fake()
 ts.watch_leds()
+ts.watch_leds()  # nothing changed: no second plan event
+ts.sessions["abcd1234"] = Booked()
+ts.watch_leds()
+ts.sessions["abcd1234"] = Fake()  # the LED lines below are checked on the pencilled session
 ts.heard(Fake(), "pebble-mayo", "no, pick a time at night", "voice",
          {"asr_s": 0.8, "asr_model": "muse-voice-transcribe-1.0"})
 ts.heard(Fake(), "pebble-frankie", "pick a different time", "long press", {})
 deadline = time.time() + 10
 while time.time() < deadline:
     code, out = live_store.get(SESSION, TOKEN)
-    if sum(e["kind"] == "model" for e in out["events"]) >= 2 and any("HEARD Frankie" in e.get("text", "") for e in out["events"]):
+    if sum(e["kind"] == "model" for e in out["events"]) >= 2 and sum(e["kind"] == "plan" for e in out["events"]) >= 2 and any("HEARD Frankie" in e.get("text", "") for e in out["events"]):
         break
     time.sleep(0.2)
 sys.stdout = real_out
@@ -137,11 +155,23 @@ assert plan["what"] == "Turned the spoken plan into dates, length, activity" and
     and plan["in"] == "Phrase: let's catch up" and plan["out"] == '{"activity": "catch up"}', plan
 asr = next(m for m in models if m["model"] == "muse-voice-transcribe-1.0")
 assert asr["what"] == "Speech to text on Mayo's Dot" and asr["out"] == "no, pick a time at night", asr
+# the live page's calendar: one "plan" event when pencilled in, one when booked, day and time from the session
+plans = [{k: v for k, v in e.items() if k not in ("t", "seq")} for e in got["events"] if e["kind"] == "plan"]
+assert plans[:2] == [
+    {"kind": "plan", "status": "pencilled", "start": START, "minutes": 45, "title": "Mayo + Frankie: catch up",
+     "slot": "Fri Nov 6, 6:00 PM ET", "session": "abcd1234", "until": "tonight at 10 PM"},
+    {"kind": "plan", "status": "booked", "start": START, "minutes": 45, "title": "Mayo + Frankie: catch up",
+     "slot": "Fri Nov 6, 6:00 PM ET", "session": "abcd1234", "until": ""}], plans
+assert "CALENDAR pencilled in: Fri Nov 6, 6:00 PM ET (45 min) [abcd1234]" in logs, logs
+assert "CALENDAR booked: Fri Nov 6, 6:00 PM ET (45 min) [abcd1234]" in logs, logs
+assert ts.plan_of(Fake(), {"state": "proposing"}) is None and ts.plan_of(Fake(), {"busy": True, "state": "booked"}) is None
 assert TOKEN not in json.dumps(got)
 html = sim.HERE.joinpath("sim.html").read_text()
 assert 'href="/live"' in html and "Connect to hardware demo" in html
 page = urllib.request.urlopen(f"{base}/live", timeout=5).read().decode()
-assert "X-Live-Token" in page and "The real Dots, live." in page
+assert "X-Live-Token" in page and "Let's catch up." in page and "The Dots will help you make it happen!" in page
+assert 'e.kind === "plan"' in page and 'id="week"' in page and 'id="card"' in page  # the calendar, fed by plan events
+assert "The Dots will help you make it happen!" in html and 'id="week"' in html
 srv.shutdown()
 print(f"OK feed: {len(logs)} lines + {len(models)} model calls pushed through web/sim.py; whole lines from 2 threads,"
       " LED/HEARD lines, model in/out, no token or key in the feed; /live page and sim button served")

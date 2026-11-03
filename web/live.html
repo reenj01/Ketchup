@@ -12,11 +12,15 @@
 <style>
 /* the real Dots, live: everything the Mac tap server prints and every model call, pushed by
    server/live.py to /live/<session>. The link from demo_up.sh carries #<session>.<token>; the
-   fragment never leaves the browser except as the X-Live-Token header on our own polls. */
+   fragment never leaves the browser except as the X-Live-Token header on our own polls.
+   Same layout as the simulator (sim.html): the Dots and the plan on top, the talk and the models
+   under them, then the tap server. */
 :root{
   --ink:#1d1b22; --soft:#6d6a75; --faint:#b0adb6; --line:#1d1b22; --hair:#ebe8ef; --bg:#fff;
   --orange:#ff6a2b; --pink:#ffb3cf; --peri:#8f8cf5; --yellow:#ffdd4a; --green:#7fd49b;
+  --led-yellow:247,201,72; --led-white:196,194,214; --led-green:110,190,130; --led-orange:255,120,40;
   --serif:"Instrument Serif",Georgia,serif; --mono:"Space Mono",ui-monospace,monospace; --display:"Bricolage Grotesque","DM Sans",sans-serif;
+  --peb:clamp(84px,12.8vh,150px); --tk:clamp(120px,16.5vh,200px);
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"DM Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
@@ -28,28 +32,82 @@ header{display:flex;justify-content:space-between;align-items:center;gap:12px;fl
 .link{background:none;border:0;padding:4px 0;color:var(--soft);cursor:pointer;font-size:14px;text-decoration:none}
 .pill{border:1.5px solid var(--ink);border-radius:999px;padding:6px 14px;color:var(--ink);font-weight:500}
 .pill:hover{background:var(--yellow)}
-h1{font-family:var(--display);font-size:clamp(40px,7vh,72px);line-height:.9;letter-spacing:-.045em;margin:26px 0 6px;font-weight:800;color:var(--orange)}
-.sub{color:var(--soft);font-size:15px}
+/* the headline, as on the simulator; squiggle and star sized in em so they scale with it */
+.hero{position:relative;font-size:clamp(46px,12vw,72px);margin:34px 0 0}
+h1{font-family:var(--display);font-size:1em;line-height:.9;letter-spacing:-.045em;margin:0;font-weight:800;color:var(--orange);position:relative;z-index:1;white-space:nowrap}
+.squiggle{position:absolute;z-index:0;left:2.75em;top:-.42em;width:2.9em;height:auto;pointer-events:none}
+.star{position:absolute;left:4.7em;top:-.18em;width:.36em;height:.36em}
+.plan{margin-top:14px;color:var(--soft);font-size:16px}
 .conn{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:4px 10px;border-radius:999px;border:1.5px solid var(--hair);color:var(--soft)}
 .conn.on{background:var(--green);border-color:var(--green);color:var(--ink)}
 .conn.bad{background:#ffd9cc;border-color:#ffd9cc;color:#c2381a}
-h2{font-family:var(--serif);font-weight:400;font-size:28px;line-height:1.05;margin:0 0 10px;letter-spacing:-.01em}
+h2{font-family:var(--serif);font-weight:400;font-size:28px;line-height:1.05;margin:0 0 12px;letter-spacing:-.01em}
 h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
-.dots{display:grid;grid-template-columns:1fr 1fr;border:1.5px solid var(--line);border-radius:22px;margin:22px 0 26px}
-.dotc{padding:16px 20px;display:flex;align-items:center;gap:14px}
-.dotc + .dotc{border-left:1.5px solid var(--line)}
-.dotc .name{font-family:var(--serif);font-size:26px}
-.dotc .led{font-size:14px;color:var(--soft)}
-.lamp{width:22px;height:22px;border-radius:50%;background:#f1f0f3;box-shadow:0 0 0 1.5px #dcd9e0;flex:none}
-.lamp.yellow{background:#f7c948;animation:b 3s ease-in-out infinite}
-.lamp.orange{background:#ff7828;box-shadow:0 0 10px 4px rgba(255,120,40,.7);animation:b 3s ease-in-out infinite}
-.lamp.white{background:#fff;box-shadow:0 0 0 1.5px #cfccd6,0 0 9px 3px rgba(196,194,214,.9)}
-.lamp.green{background:#6ebe82;box-shadow:0 0 8px 3px rgba(110,190,130,.6)}
-@keyframes b{50%{opacity:.25}}
-.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(22px,2.6vw,48px)}
-.panel{min-width:0}
-.box{border:1.5px solid var(--line);border-radius:16px;padding:10px 14px;height:clamp(220px,34vh,420px);overflow:auto}
+
+/* layout, the same on the simulator and the live page */
+.board{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"dots" "plan" "talk" "models" "term";gap:34px;margin-top:30px}
+.a-dots{grid-area:dots;min-width:0;display:flex;flex-direction:column}
+.a-plan{grid-area:plan;min-width:0;display:flex;flex-direction:column}
+.a-talk{grid-area:talk;min-width:0}
+.a-models{grid-area:models;min-width:0}
+.a-term{grid-area:term;min-width:0}
+.box{border:1.5px solid var(--line);border-radius:16px;padding:10px 14px;height:clamp(240px,36vh,440px);overflow:auto}
 .box .empty{color:var(--faint);font-size:14px}
+
+/* the two Dots: a pebble each, its LED as the tap server says it is */
+.dots{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1.5px solid var(--line);border-radius:22px;flex:1}
+.dotc{padding:clamp(18px,3vh,34px) 14px 22px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.dotc + .dotc{border-left:1.5px solid var(--line)}
+.dotc .name{font-family:var(--serif);font-size:clamp(24px,3.4vh,32px);line-height:1;margin-top:clamp(12px,2vh,22px)}
+.dotc .led{font-size:14px;color:var(--soft);max-width:250px;min-height:2.8em;margin-top:8px;line-height:1.4;text-wrap:balance}
+.lamp{width:var(--peb);height:var(--peb);border-radius:50%;position:relative;flex:none;
+  background:radial-gradient(circle at 38% 32%,#ffffff 0%,#f4f2ee 45%,#e2dfd8 100%);
+  box-shadow:0 10px 24px rgba(29,27,34,.10), inset 0 -6px 14px rgba(0,0,0,.04)}
+.lamp::after{content:"";position:absolute;inset:-16px;border-radius:50%;opacity:0;transition:opacity .6s ease, background .6s ease}
+.lamp::before{content:"";position:absolute;inset:0;border-radius:50%;z-index:1;background:inherit}
+.lamp .dot{position:absolute;z-index:2;left:50%;top:50%;width:10px;height:10px;margin:-5px;border-radius:50%;background:#f1f0f3;box-shadow:0 0 0 1.5px #dcd9e0;transition:background .6s,box-shadow .6s}
+.lamp.yellow::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-yellow),.45) 52%,rgba(var(--led-yellow),0) 72%);animation:b 3s ease-in-out infinite}
+.lamp.yellow .dot{background:rgb(var(--led-yellow));animation:db 3s ease-in-out infinite}
+.lamp.orange::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-orange),.6) 52%,rgba(var(--led-orange),0) 72%);animation:b 3s ease-in-out infinite}
+.lamp.orange .dot{background:rgb(var(--led-orange));box-shadow:0 0 8px 3px rgba(var(--led-orange),.8);animation:db 3s ease-in-out infinite}
+.lamp.white::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-white),.6) 52%,rgba(var(--led-white),0) 72%)}
+.lamp.white .dot{background:#fff;box-shadow:0 0 0 1.5px #cfccd6,0 0 9px 3px rgba(var(--led-white),.9)}
+.lamp.green::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-green),.45) 52%,rgba(var(--led-green),0) 72%)}
+.lamp.green .dot{background:rgb(var(--led-green));box-shadow:0 0 6px 2px rgba(var(--led-green),.6)}
+@keyframes b{50%{opacity:.1}}
+@keyframes db{50%{opacity:.25}}
+
+/* the plan as a ticket, then the week: the same as the simulator's */
+.sticky{font-style:normal;position:absolute;font-family:var(--mono);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:5px 10px;box-shadow:2px 2px 0 var(--ink);border:1.5px solid var(--ink);white-space:nowrap;z-index:4}
+.ticket{position:relative;border-radius:20px;background:#f6f4f8;display:flex;flex-direction:column;flex:none;
+  -webkit-mask:radial-gradient(circle 15px at 0 var(--tk),#0000 97%,#000) left/51% 100% no-repeat,radial-gradient(circle 15px at 100% var(--tk),#0000 97%,#000) right/51% 100% no-repeat;
+          mask:radial-gradient(circle 15px at 0 var(--tk),#0000 97%,#000) left/51% 100% no-repeat,radial-gradient(circle 15px at 100% var(--tk),#0000 97%,#000) right/51% 100% no-repeat}
+.ticket .top{height:var(--tk);flex:none;padding:18px 24px 12px;display:flex;flex-direction:column}
+.ticket .bot{flex:1;padding:12px 4px 14px;border-top:2px dashed rgba(29,27,34,.28);margin:0 20px}
+.ticket .t{font-family:var(--serif);font-size:clamp(24px,3.4vh,32px);line-height:1}
+.ticket .t i{font-size:.8em;color:rgba(29,27,34,.55)}
+.ticket .day{display:flex;align-items:flex-end;gap:14px;margin-top:auto}
+.ticket .num{font-family:var(--mono);font-weight:700;font-size:calc(var(--tk) * .5);line-height:.82;letter-spacing:-.06em}
+.ticket .mo{font-family:var(--serif);font-size:24px;line-height:1.05;padding-bottom:4px}
+.ticket .mo span{display:block;font-family:"DM Sans",sans-serif;font-size:14px;color:rgba(29,27,34,.6)}
+.row{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:2px 0}
+.row span{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:rgba(29,27,34,.6);padding-top:2px}
+.ticket .blank{margin:auto 0;color:var(--soft);font-size:14.5px;line-height:1.45}
+.ticket.pencil{background:var(--yellow)}
+.ticket.booked{background:var(--green)}
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));margin-top:clamp(16px,2.6vh,30px);border:1.5px solid var(--line);border-radius:14px;position:relative;flex:none}
+.week div{position:relative;padding:14px 5px 10px;border-right:1.5px solid var(--line);min-height:clamp(60px,8.4vh,100px)}
+.week div:first-child{border-radius:12px 0 0 12px}
+.week div:last-child{border-right:0;border-radius:0 12px 12px 0}
+.week span{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft)}
+.week b{display:block;font-family:var(--mono);font-size:clamp(18px,2.8vh,26px);font-weight:400;letter-spacing:-.04em;margin-top:2px}
+.week em{display:block;margin-top:6px;font-style:normal;font-size:11px;font-weight:700;line-height:1.2}
+.week .hit{background:var(--yellow)}
+.week .hit.ok{background:var(--green)}
+.week .sticky{font-size:10px;padding:3px 6px;box-shadow:1.5px 1.5px 0 var(--ink)}
+.week .sticky.today{top:-12px;left:50%;margin-left:-26px;background:var(--yellow);transform:rotate(-5deg)}
+.week .sticky.done{bottom:-14px;left:50%;background:var(--pink);transform:translateX(-50%) rotate(5deg)}
+
 /* same chat bubbles as the simulator's "the talk" */
 .notes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .notes li{font-size:14px;line-height:1.38}
@@ -74,7 +132,22 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 .form input{flex:1;min-width:260px;border:0;border-bottom:1.5px solid var(--hair);padding:8px 2px;outline:none;font-family:var(--mono);font-size:13px}
 .btn{border:1.5px solid var(--ink);border-radius:999px;padding:9px 20px;font-weight:700;cursor:pointer;background:var(--ink);color:#fff;box-shadow:3px 3px 0 var(--ink)}
 .err{color:#c2381a;font-size:13.5px}
-@media (max-width:899px){.grid{grid-template-columns:1fr}.dots{grid-template-columns:1fr}.dotc + .dotc{border-left:0;border-top:1.5px solid var(--line)}}
+@media (min-width:900px){
+  .board{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"dots plan" "talk models" "term term";gap:clamp(22px,3vh,36px) clamp(24px,2.6vw,48px);margin-top:clamp(16px,3vh,38px)}
+  .hero{font-size:clamp(40px,7.4vh,86px);margin-top:clamp(10px,2vh,26px);display:flex;align-items:flex-end;gap:28px}
+  .plan{margin:0 0 .14em;font-size:clamp(14px,1.9vh,17px)}
+  .star{left:5.3em;top:-.22em}
+  h2{font-size:clamp(24px,3.6vh,34px)}
+}
+@media (max-width:760px){
+  :root{--peb:96px;--tk:180px}
+  .ticket .num{font-size:88px}
+  .week b{font-size:17px}
+  .week div{padding:14px 3px 12px;min-height:84px}
+  .week .sticky.today{margin-left:-20px}
+  .week span{font-size:9px}
+  .week .sticky{font-size:8.5px;padding:2px 4px}
+}
 </style>
 </head>
 <body>
@@ -83,8 +156,13 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
     <div class="brand"><i></i>Ketchup</div>
     <span><span class="conn" id="conn">not connected</span> <a class="link pill" href="/">Simulator</a></span>
   </header>
-  <h1>The real Dots, live.</h1>
-  <div class="sub">Everything the Mac tap server prints and every model call, as it happens. Keys never leave the Mac.</div>
+  <section class="hero">
+    <!-- hand-drawn squiggle and star, our own SVG (the same as the simulator's) -->
+    <svg class="squiggle" viewBox="0 0 340 120" fill="none" aria-hidden="true"><path d="M8 84c30-46 52-62 66-46s-8 52 14 52 36-74 62-72 2 64 30 66 34-70 62-68 6 58 34 56 40-40 56-52" stroke="#8f8cf5" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg class="star" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 2l4 12 12-4-8 10 8 10-12-4-4 12-4-12-12 4 8-10-8-10 12 4z" fill="#ffdd4a" stroke="#1d1b22" stroke-width="1.5" stroke-linejoin="round"/></svg>
+    <h1>Let's catch up.</h1>
+    <div class="plan">You and Frankie mentioned hanging out next week. The Dots will help you make it happen!</div>
+  </section>
 
   <div id="connect" class="form" style="display:none">
     <input id="code" placeholder="Paste the live link (or session.token) that scripts/demo_up.sh printed" autocomplete="off">
@@ -92,17 +170,23 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
     <div class="err" id="cerr"></div>
   </div>
 
-  <div id="feed" style="display:none">
-    <section class="dots">
-      <div class="dotc"><span class="lamp" id="lamp-mayo"></span><div><div class="name">Mayo</div><div class="led" id="led-mayo">no news yet</div></div></div>
-      <div class="dotc"><span class="lamp" id="lamp-frankie"></span><div><div class="name">Frankie</div><div class="led" id="led-frankie">no news yet</div></div></div>
+  <main id="feed" class="board" style="display:none">
+    <section class="a-dots">
+      <h2>the Dots <i>( live )</i></h2>
+      <div class="dots">
+        <div class="dotc"><div class="lamp" id="lamp-mayo"><span class="dot"></span></div><div class="name">Mayo</div><div class="led" id="led-mayo">no news yet</div></div>
+        <div class="dotc"><div class="lamp" id="lamp-frankie"><span class="dot"></span></div><div class="name">Frankie</div><div class="led" id="led-frankie">no news yet</div></div>
+      </div>
     </section>
-    <div class="grid">
-      <div class="panel"><h2>the talk <i>( 01 )</i></h2><div class="box" id="talk-box"><ul class="notes" id="talk"><li class="empty">Nothing yet. Touch the Dots together.</li></ul></div></div>
-      <div class="panel"><h2>models <i>( 02 )</i></h2><div class="box" id="calls-box"><table class="calls" id="calls"><tr><td class="empty">No model calls yet.</td></tr></table></div></div>
-      <div class="panel" style="grid-column:1/-1"><h2>tap server <i>( 03 )</i></h2><div class="box term" id="term"></div></div>
-    </div>
-  </div>
+    <section class="a-plan">
+      <h2>the plan <i>( 02 )</i></h2>
+      <div class="ticket" id="card"></div>
+      <div class="week" id="week"></div>
+    </section>
+    <section class="a-talk"><h2>the talk <i>( 01 )</i></h2><div class="box" id="talk-box"><ul class="notes" id="talk"><li class="empty">Nothing yet. Touch the Dots together.</li></ul></div></section>
+    <section class="a-models"><h2>models <i>( 03 )</i></h2><div class="box" id="calls-box"><table class="calls" id="calls"><tr><td class="empty">No model calls yet.</td></tr></table></div></section>
+    <section class="a-term"><h2>tap server <i>( 04 )</i></h2><div class="box term" id="term"></div></section>
+  </main>
 </div>
 <script>
 const $ = s => document.querySelector(s);
@@ -142,9 +226,48 @@ async function poll() {
   timer = setTimeout(poll, 1000);
 }
 
+// ---- the plan: the newest session's time, from the tap server's "plan" events (pencilled, then booked) ----
+let plan = null, cur = "";  // cur: the newest Ketchup session seen in the log
+const Z = {timeZone: "America/New_York"};
+const dayOf = d => new Date(d).toLocaleDateString("en-CA", Z);  // YYYY-MM-DD in ET
+const addDays = (d, n) => new Date(Date.parse(d + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+function onSession(s) {
+  if (!s || s === cur) return;
+  cur = s; if (plan && plan.session !== s) plan = null;
+  renderPlan();
+}
+function renderPlan() {
+  const c = $("#card"), ok = plan && plan.status === "booked";
+  if (!plan) {
+    c.className = "ticket";
+    c.innerHTML = `<div class="top"><div class="t">${cur ? "in progress" : "nothing yet"}</div><div class="blank">${cur ? "The agents are comparing calendars." : "Once both agents agree, the time shows up here."}</div></div>
+      <div class="bot"><div class="row"><span>Who</span>Mayo + Frankie</div></div>`;
+  } else {
+    const d = new Date(plan.start);
+    const num = d.toLocaleDateString("en-US", {...Z, day: "2-digit"}), mo = d.toLocaleDateString("en-US", {...Z, month: "long"});
+    const wd = d.toLocaleDateString("en-US", {...Z, weekday: "long"});
+    const tm = d.toLocaleTimeString("en-US", {...Z, hour: "numeric", minute: "2-digit"});
+    const until = (plan.until || "").replace(/^./, x => x.toUpperCase());
+    c.className = "ticket " + (ok ? "booked" : "pencil");
+    c.innerHTML = `<div class="top"><div class="t">${ok ? "booked" : "pencilled in"} <i>( ${ok ? "✓" : "?"} )</i></div>
+        <div class="day"><div class="num">${num}</div><div class="mo">${wd}<span>${mo}</span></div></div></div>
+      <div class="bot"><div class="row"><span>When</span>${tm} ET</div><div class="row"><span>Length</span>${esc(plan.minutes || 30)} min</div>
+        <div class="row"><span>${ok || !until ? "Who" : "Locks in"}</span>${ok || !until ? "Mayo + Frankie" : esc(until)}</div></div>`;
+  }
+  // a week from today (ET); if the plan is further out, the week around it
+  const today = dayOf(Date.now()), pd = plan && dayOf(plan.start);
+  const first = pd && (Date.parse(pd) - Date.parse(today)) / 864e5 > 6 ? addDays(pd, -3) : today;
+  $("#week").innerHTML = Array.from({length: 7}, (_, i) => addDays(first, i)).map(day => {
+    const d = new Date(day + "T12:00:00Z"), hit = pd === day;
+    const tm = hit ? new Date(plan.start).toLocaleTimeString("en-US", {...Z, hour: "numeric", minute: "2-digit"}) : "";
+    return `<div class="${hit ? "hit" + (ok ? " ok" : "") : ""}">${day === today ? '<i class="sticky today">Today</i>' : ""}<span>${d.toLocaleDateString("en-US", {timeZone: "UTC", weekday: "short"})}</span><b>${String(d.getUTCDate()).padStart(2, "0")}</b>${hit ? `<em>${tm}</em>` : ""}${hit && ok ? '<i class="sticky done">Booked!</i>' : ""}</div>`;
+  }).join("");
+}
+
 const AGENT = /^\[([0-9a-f]{8})\] (.*)$/;
 function show(e) {
   if (e.kind === "model") return call(e);
+  if (e.kind === "plan") { if (e.start) { plan = e; cur = e.session || cur; renderPlan(); } return; }
   const line = e.text || "";
   stick($("#term"), () => {
     const cls = /^DOT (ON|OFF)LINE|^BOTH DOTS/.test(line) ? "online" : /^LED /.test(line) ? "led" : /^HEARD /.test(line) ? "heard"
@@ -154,12 +277,14 @@ function show(e) {
   let m;
   if ((m = line.match(/^LED (Mayo|Frankie)'s Dot: (.*?) \[/))) {
     const k = m[1].toLowerCase(), led = m[2];
+    onSession((line.match(/\[([0-9a-f]{8})\]$/) || [])[1]);
     $("#led-" + k).textContent = led;
     $("#lamp-" + k).className = "lamp " + (/^yellow/.test(led) ? "yellow" : /^orange/.test(led) ? "orange"
       : /^bright white/.test(led) ? "white" : /^green/.test(led) ? "green" : "");
   } else if ((m = line.match(/^HEARD (Mayo|Frankie)'s Dot \(([^)]*)\): "(.*)"$/))) {
     note("human", `${m[1]} · ${m[2]}`, m[3]);
   } else if ((m = line.match(AGENT))) {  // the session's own log: agent turns and milestones; listings stay in the terminal
+    onSession(m[1]);
     const text = m[2].trim(), r = text.match(/^\[round (\d+)\] ((?:Mayo|Frankie)'s agent) (.*)$/);
     if (r) note("agent", `${r[2]} · round ${r[1]}`, r[3]);
     else if (/^(Heard:|Plan |Nudge:|Agreed:|Pencilled in|Booked|Confirmed)|Dot says:|Dots say:|wants a change|^Backup/.test(text))
@@ -185,6 +310,7 @@ function showForm(err) {
 }
 $("#go").onclick = () => { const c = parse($("#code").value); c ? start(c) : showForm("That isn't a live link."); };
 $("#code").onkeydown = e => { if (e.key === "Enter") $("#go").click(); };
+renderPlan();
 const c = parse(location.hash);
 c ? start(c) : showForm("");
 </script>

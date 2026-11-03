@@ -20,7 +20,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
 button,input{font:inherit;color:inherit}
-.wrap{max-width:1000px;margin:0 auto;padding:22px 28px 40px}
+.wrap{max-width:1640px;margin:0 auto;padding:22px clamp(18px,3vw,56px) 40px}
 header{display:flex;justify-content:space-between;align-items:center}
 .brand{font-family:var(--display);font-weight:800;font-size:19px;letter-spacing:-.02em}
 .brand i{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--orange);margin-right:8px;vertical-align:0}
@@ -40,8 +40,15 @@ h1{font-family:var(--display);font-size:1em;line-height:.9;letter-spacing:-.045e
 .plan input:focus{border-bottom-color:var(--peri)}
 .plan input:disabled{color:var(--soft);border-bottom-color:transparent}
 
-.stage{display:grid;grid-template-columns:1fr;gap:44px;margin-top:30px}
-.col{min-width:0;display:flex;flex-direction:column}
+/* layout, the same on the simulator and the live page (live.html): the Dots and the plan on top,
+   the talk and the models under them */
+.board{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"dots" "plan" "talk" "models";gap:34px;margin-top:30px}
+.a-dots{grid-area:dots;min-width:0;display:flex;flex-direction:column}
+.a-plan{grid-area:plan;min-width:0;display:flex;flex-direction:column}
+.a-talk{grid-area:talk;min-width:0}
+.a-models{grid-area:models;min-width:0}
+.box{border:1.5px solid var(--line);border-radius:16px;padding:10px 14px;height:clamp(240px,36vh,440px);overflow:auto}
+.box .empty{color:var(--faint);font-size:14px}
 .status{min-height:62px}
 .status .now{display:block;font-family:var(--serif);font-size:30px;line-height:1.05;letter-spacing:-.01em}
 .status .hint{display:block;color:var(--soft);font-size:14px;margin-top:4px;line-height:1.35}
@@ -52,7 +59,7 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 
 /* pebbles */
 :root{--peb:104px;--sidepad:28px}
-.pair{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:12px;border:1.5px solid var(--line);border-radius:22px}
+.pair{position:relative;flex:1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:12px;border:1.5px solid var(--line);border-radius:22px}
 .side{padding:var(--sidepad) 14px 22px;text-align:center;position:relative;border-radius:22px;transition:background .5s}
 .side + .side{border-left:1.5px solid var(--line);border-radius:0 22px 22px 0}
 .side:first-of-type{border-radius:22px 0 0 22px}
@@ -124,7 +131,6 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 .novoice .say{display:none}
 
 /* the talk */
-.notes-box{flex:1;min-height:0;overflow:hidden}
 .notes{list-style:none;margin:0;padding:0}
 .notes{display:flex;flex-direction:column;gap:6px}
 .notes li{display:flex;gap:8px;align-items:flex-end;font-size:14.5px;line-height:1.38;max-width:86%}
@@ -179,28 +185,19 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 .week .sticky.today{top:-12px;left:50%;margin-left:-26px;background:var(--yellow);transform:rotate(-5deg)}
 .week .sticky.done{bottom:-14px;left:50%;background:var(--pink);transform:translateX(-50%) rotate(5deg)}
 
-/* model calls: one chip row; the list opens as a card on top, never a scroll box */
-details{margin-top:auto;padding-top:22px;font-size:14px;color:var(--soft);position:relative}
-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-summary::-webkit-details-marker{display:none}
-summary h2{margin:0;font-size:24px}
-summary .models{display:flex;gap:6px;flex-wrap:wrap}
-summary .models em,.calls td.m em{font-style:normal;font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid var(--ink);background:none;color:var(--ink);white-space:nowrap}  /* plain on purpose: chat colours mean people */
-#calltoggle{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
-.pop{margin-top:14px}
+/* model calls: a table in its own box, as on the live page */
+.sum{font-family:"DM Sans",sans-serif;font-size:14px;color:var(--soft);margin-left:6px}
+.calls td.m em{font-style:normal;font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid var(--ink);background:none;color:var(--ink);white-space:nowrap}  /* plain on purpose: chat colours mean people */
 .calls{width:100%;border-collapse:collapse}
 .calls td{padding:7px 10px 7px 0;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--ink);font-size:13.5px}
 .calls td.m{white-space:nowrap}
 .calls td.s{text-align:right;white-space:nowrap;font-family:var(--mono);font-size:12px}
 .calls tr.fail td{color:#c2381a}
-.calls tr.hid{display:none}
-.calls tr.more td{color:var(--soft)}
 
 footer{margin-top:44px;padding-top:12px;border-top:1.5px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--soft)}
 footer .r{display:flex;gap:18px}
 footer .link{font-size:12.5px;padding:0}
 
-/* laptop and desktop: one screen, three columns, nothing scrolls */
 /* each person's mock calendar, the same data the agents read */
 .calbtn{margin-top:8px;border:1.5px solid var(--ink);background:#fff;border-radius:999px;padding:3px 11px;font-family:var(--mono);font-size:11px;letter-spacing:.03em;cursor:pointer;color:var(--ink)}
 .calbtn:hover{background:var(--hair)}
@@ -273,33 +270,22 @@ footer .link{font-size:12.5px;padding:0}
 }
 
 @media (min-width:900px){
-  html,body{height:100%}
-  :root{--peb:clamp(84px,12.8vh,150px);--sidepad:clamp(16px,3vh,40px);--tk:clamp(120px,16.5vh,220px)}
-  .wrap{max-width:1640px;height:100vh;height:100dvh;display:flex;flex-direction:column;padding:clamp(14px,2.4vh,28px) clamp(28px,3vw,56px) clamp(10px,1.6vh,20px)}
+  :root{--peb:clamp(84px,12.8vh,150px);--sidepad:clamp(16px,3vh,40px);--tk:clamp(120px,16.5vh,200px)}
+  .board{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"dots plan" "talk models";gap:clamp(22px,3vh,36px) clamp(24px,2.6vw,48px);margin-top:clamp(16px,3vh,38px)}
   .hero{font-size:clamp(40px,7.4vh,86px);margin-top:clamp(10px,2vh,26px);display:flex;align-items:flex-end;gap:28px}
   .plan{margin:0 0 .14em;font-size:clamp(14px,1.9vh,17px)}
   .squiggle{left:2.75em}
   .star{left:5.3em;top:-.22em}
-  .col{min-height:0}
-  .stage{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);grid-template-columns:minmax(0,1.05fr) minmax(0,1.15fr) minmax(0,.85fr);gap:clamp(28px,2.8vw,56px);margin-top:clamp(16px,3vh,38px)}
   .status .now{font-size:clamp(24px,3.6vh,36px)}
   .name{margin-top:clamp(12px,2vh,22px);font-size:clamp(24px,3.4vh,32px)}
   .q{font-size:clamp(14px,1.9vh,17px)}
   h2{font-size:clamp(24px,3.6vh,34px)}
   .status{min-height:calc(clamp(24px,3.6vh,36px) * 1.05 + 14px * 1.35 * 2 + 4px)}
-  .col.talk-col h2,.col.plan-col h2{margin-bottom:12px}
   .notes li{font-size:clamp(13.5px,1.8vh,16px)}
-  .week{margin-top:clamp(16px,2.6vh,34px)}
-  summary .models em{font-size:10.5px;padding:1px 6px}
-  summary h2{font-size:clamp(20px,2.8vh,26px)}
-  .week div{min-height:clamp(60px,8.4vh,108px)}
-  .week b{font-size:clamp(18px,2.8vh,28px)}
+  .week{margin-top:clamp(16px,2.6vh,30px)}
+  .week div{min-height:clamp(60px,8.4vh,100px)}
+  .week b{font-size:clamp(18px,2.8vh,26px)}
   .ticket .t{font-size:clamp(24px,3.4vh,32px)}
-  footer{margin-top:clamp(10px,1.8vh,22px);padding-top:10px}
-  details[open] .pop{position:absolute;right:0;bottom:calc(100% + 10px);width:min(680px,46vw);margin:0;background:#fff;border:1.5px solid var(--ink);border-radius:16px;box-shadow:4px 4px 0 var(--ink);padding:10px 18px 8px;z-index:20}
-}
-@media (min-width:900px) and (min-height:950px){
-  :root{--peb:clamp(84px,17vh,200px);--sidepad:clamp(18px,4.6vh,60px)}
 }
 
 @media (max-width:899px){
@@ -346,13 +332,13 @@ footer .link{font-size:12.5px;padding:0}
     <svg class="squiggle" viewBox="0 0 340 120" fill="none" aria-hidden="true"><path d="M8 84c30-46 52-62 66-46s-8 52 14 52 36-74 62-72 2 64 30 66 34-70 62-68 6 58 34 56 40-40 56-52" stroke="#8f8cf5" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <svg class="star" viewBox="0 0 40 40" aria-hidden="true"><path d="M20 2l4 12 12-4-8 10 8 10-12-4-4 12-4-12-12 4 8-10-8-10 12 4z" fill="#ffdd4a" stroke="#1d1b22" stroke-width="1.5" stroke-linejoin="round"/></svg>
     <h1>Let's catch up.</h1>
-    <div class="plan">You and Frankie mentioned hanging out next week. Ketchup will help you make it happen!</div>
+    <div class="plan">You and Frankie mentioned hanging out next week. The Dots will help you make it happen!</div>
   </section>
 
-  <main class="stage">
-    <div class="col">
+  <main class="board">
+    <section class="a-dots">
       <div class="status"><span class="now" id="now">Touch the Dots together.</span><span class="hint" id="hint">Drag one onto the other, or tap Pair.</span></div>
-      <section class="pair" id="stage">
+      <div class="pair" id="stage">
         <button class="btn orange pairbtn" id="tapbtn">Pair</button>
         <div class="side" id="side-mayo">
           <div class="pebble" id="peb-mayo"><span class="dot"></span></div>
@@ -364,21 +350,21 @@ footer .link{font-size:12.5px;padding:0}
           <div id="co-frankie"></div>
           <button class="calbtn" data-cal="frankie">See calendar</button>
         </div>
-      </section>
-    </div>
-    <div class="col talk-col">
-      <h2>the talk <i>( 01 )</i></h2>
-      <div class="notes-box" id="conv-box"><ul class="notes" id="conv"><li class="empty">Nothing yet.</li></ul></div>
-    </div>
-    <div class="col plan-col">
+      </div>
+    </section>
+    <section class="a-plan">
       <h2>the plan <i>( 02 )</i></h2>
       <div class="ticket" id="card"></div>
       <div class="week" id="week"></div>
-      <details id="calls-box">
-        <summary><h2>models <i>( 03 )</i></h2><span class="models"><em>Muse Spark</em><em>Muse Voice Transcribe</em><em>MMS-TTS</em></span> <span id="callsum"></span> <span id="calltoggle"></span></summary>
-        <div class="pop"><table class="calls" id="calls"></table></div>
-      </details>
-    </div>
+    </section>
+    <section class="a-talk">
+      <h2>the talk <i>( 01 )</i></h2>
+      <div class="box" id="conv-box"><ul class="notes" id="conv"><li class="empty">Nothing yet.</li></ul></div>
+    </section>
+    <section class="a-models">
+      <h2>models <i>( 03 )</i><span class="sum" id="callsum"></span></h2>
+      <div class="box" id="calls-box"><table class="calls" id="calls"></table></div>
+    </section>
   </main>
 
   <footer>
@@ -518,22 +504,11 @@ function addNotes(lines) {
     li.innerHTML = `<span class="bub">${label}${body}${n[2] ? `<small>${esc(n[2])}</small>` : ""}</span>${said ? sayBtn("n" + noteN++, said, who) : ""}`;
     box.appendChild(li);
   }
-  fitNotes();
+  stick($("#conv-box"));
 }
-// one screen, no scroll box: shorten older lines, then fold the oldest into "+ N earlier"
 const wide = () => matchMedia("(min-width:900px)").matches;
-function fitNotes() {
-  const box = $("#conv-box"), ul = $("#conv"), items = [...ul.querySelectorAll("li:not(.more):not(.empty)")];
-  items.forEach(li => li.classList.remove("hid", "brief"));
-  ul.querySelectorAll("li.more").forEach(li => li.remove());
-  if (!wide()) return;
-  const over = () => ul.offsetHeight > box.clientHeight;
-  for (const li of items.slice(0, -3)) { if (!over()) break; li.classList.add("brief"); }
-  if (!over()) return;
-  const more = document.createElement("li"); more.className = "more sys"; ul.prepend(more);
-  let n = 0;
-  for (const li of items) { if (!over() && n) break; li.classList.add("hid"); n++; more.innerHTML = `<span class="bub">${n} earlier ${n > 1 ? "lines" : "line"}</span>`; if (!over()) break; }
-}
+// keep a box scrolled to the bottom when something new arrives
+function stick(box) { box.scrollTop = box.scrollHeight; }
 
 // ---- pebbles ----
 // same colours as the Dot's LED (pebble/pi_pebble.py)
@@ -640,26 +615,12 @@ function renderCard() {
       <div class="row"><span>${ok ? "Who" : "Locks in"}</span>${ok ? "Mayo + Frankie" : "10 PM tonight"}</div></div>`;
 }
 function renderCalls() {
-  const calls = (view && view.calls) || [];
+  const calls = (view && view.calls) || [], t = $("#calls");
   $("#callsum").textContent = calls.length ? `${calls.length} calls` : "";
-  $("#calltoggle").textContent = calls.length ? "· " + ($("#calls-box").open ? "hide" : "show") : "";
-  $("#calls").innerHTML = calls.map(c => `<tr class="${c.ok ? "" : "fail"}"><td class="m"><em>${esc(c.model.replace(/^meta-models\//, ""))}</em></td><td>${esc(c.what)}${c.ok ? "" : " (failed, used backup)"}</td><td class="s">${c.cached ? "saved" : c.seconds.toFixed(2) + " s"}</td></tr>`).join("");
-  fitCalls();
+  const html = calls.length ? calls.map(c => `<tr class="${c.ok ? "" : "fail"}"><td class="m"><em>${esc(c.model.replace(/^meta-models\//, ""))}</em></td><td>${esc(c.what)}${c.ok ? "" : " (failed, used backup)"}</td><td class="s">${c.cached ? "saved" : c.seconds.toFixed(2) + " s"}</td></tr>`).join("")
+    : '<tr><td class="empty">No model calls yet.</td></tr>';
+  if (t._html !== html) { setHTML(t, html); stick($("#calls-box")); }
 }
-$("#calls-box").addEventListener("toggle", renderCalls);
-// the open list is a card, not a scroll box: if it would run off the top, fold the oldest calls
-function fitCalls() {
-  const pop = $("#calls-box .pop"), rows = [...$("#calls").querySelectorAll("tr:not(.more)")];
-  $("#calls").querySelectorAll("tr.more").forEach(r => r.remove());
-  if (!$("#calls-box").open || !wide()) return;
-  const over = () => pop.getBoundingClientRect().top < 8;
-  if (!over()) return;
-  const more = document.createElement("tr"); more.className = "more"; $("#calls").prepend(more);
-  let n = 0;
-  for (const r of rows) { r.classList.add("hid"); n++; more.innerHTML = `<td colspan="3">+ ${n} earlier</td>`; if (!over()) break; }
-}
-document.addEventListener("click", e => { const box = $("#calls-box"); if (box.open && !box.contains(e.target)) box.open = false; });
-addEventListener("resize", () => { fitNotes(); renderCalls(); });
 
 // ---- week: big numerals, the hold as one block ----
 async function loadWeek() {
@@ -669,12 +630,16 @@ async function loadWeek() {
   renderCal();
   const dayOf = d => new Date(d).toLocaleDateString("en-CA", z);
   const hold = (W.people.mayo.ketchup || [])[0];
-  $("#week").innerHTML = W.days.map((day, i) => {
-    const d = new Date(day + "T12:00:00");
-    const hit = hold && dayOf(hold.start) === day;
+  // a week from today (ET); if the hold is further out, the week around it, so its day and time always show
+  const today = dayOf(Date.now()), hd = hold && dayOf(hold.start);
+  const addDays = (day, n) => new Date(Date.parse(day + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+  const first = hd && (Date.parse(hd) - Date.parse(today)) / 864e5 > 6 ? addDays(hd, -3) : today;
+  $("#week").innerHTML = Array.from({length: 7}, (_, i) => addDays(first, i)).map(day => {
+    const d = new Date(day + "T12:00:00Z");
+    const hit = hd === day;
     const tm = hit ? new Date(hold.start).toLocaleTimeString("en-US", {...z, hour: "numeric", minute: "2-digit"}) : "";
     const ok = hit && hold.status === "confirmed";
-    return `<div class="${hit ? "hit" + (ok ? " ok" : "") : ""}">${i === 0 ? '<i class="sticky today">Today</i>' : ""}<span>${d.toLocaleDateString("en-US", {weekday: "short"})}</span><b>${String(d.getDate()).padStart(2, "0")}</b>${hit ? `<em>${tm}</em>` : ""}${ok ? '<i class="sticky done">Booked!</i>' : ""}</div>`;
+    return `<div class="${hit ? "hit" + (ok ? " ok" : "") : ""}">${day === today ? '<i class="sticky today">Today</i>' : ""}<span>${d.toLocaleDateString("en-US", {timeZone: "UTC", weekday: "short"})}</span><b>${String(d.getUTCDate()).padStart(2, "0")}</b>${hit ? `<em>${tm}</em>` : ""}${ok ? '<i class="sticky done">Booked!</i>' : ""}</div>`;
   }).join("");
 }
 

@@ -191,16 +191,41 @@ def dot_leds(snap):
     return out
 
 
+def plan_of(s, snap):
+    """The time on the calendar for this snapshot: pencilled in (tentative) or booked, else None."""
+    st = snap.get("state")
+    if snap.get("busy") or st not in ("pencilled_in", "booked", "agreed (dry run, not booked)"):
+        return None
+    when = snap.get("agreed_slot") if st != "pencilled_in" else snap.get("proposal")
+    if not (when or {}).get("start"):
+        return None
+    h = getattr(s, "hold", None) or {}
+    return {"status": "pencilled" if st == "pencilled_in" else "booked", "start": when["start"],
+            "minutes": h.get("minutes") or 30, "title": h.get("title") or "Ketchup", "slot": when.get("slot", ""), "session": s.sid,
+            "until": (snap.get("hold") or {}).get("deadline_text", "") if st == "pencilled_in" else ""}
+
+
+PLAN_SEEN = {}  # "last" -> (session id, plan) pushed to the live page
+
+
 def watch_leds():
-    """Print a line whenever the newest session's expected LED changes on a Dot."""
+    """Print a line whenever the newest session's expected LED changes on a Dot, and one (plus a
+    "plan" event for the live page's calendar) whenever its pencilled / booked time changes."""
     with lock:
         s = list(sessions.values())[-1] if sessions else None
     if not s:
         return
-    for dev, led in dot_leds(snapshot(s)).items():
+    snap = snapshot(s)
+    for dev, led in dot_leds(snap).items():
         if LED_SEEN.get(dev) != (s.sid, led):
             LED_SEEN[dev] = (s.sid, led)
             print(f"LED {DEVICES[dev].capitalize()}'s Dot: {led} [{s.sid}]", flush=True)
+    plan = plan_of(s, snap)
+    if plan and PLAN_SEEN.get("last") != (s.sid, plan):
+        PLAN_SEEN["last"] = (s.sid, plan)
+        print(f"CALENDAR {'pencilled in' if plan['status'] == 'pencilled' else 'booked'}: {plan['slot']} "
+              f"({plan['minutes']} min) [{s.sid}]", flush=True)
+        live.push("plan", **plan)
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -9,6 +9,9 @@ Opt-in. Off unless both are set (scripts/demo_up.sh sets them when KETCHUP_LIVE_
 Sent, in batches every 0.5 s (POST JSON {"events": [...]}, header X-Live-Token):
     {"kind": "log",   "text": every line the tap server prints (stdout and stderr)}
     {"kind": "model", "model", "label", "what", "seconds", "ok", "in", "out"}  every model call
+    {"kind": "plan",  "status" (pencilled | booked), "start" (ISO), "minutes", "title", "slot",
+                      "session", "until" (pencilled: when it confirms on its own)}
+                      the newest session's time on the calendar, whenever it changes
 Each event also has "t" (epoch seconds). Text passes redact() first: key values from the
 environment, Bearer headers, sk-/key-looking strings and long random-looking tokens become
 [redacted]. A push that fails is dropped (the demo never waits on the website); one line on the
