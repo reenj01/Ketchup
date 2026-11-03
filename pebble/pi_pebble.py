@@ -2,8 +2,8 @@
 
 Touch two pebbles together (KY-003 Hall sensor) -> POST /tap; the server pairs
 two taps within 5 s (the server's KETCHUP_PAIR_WINDOW_S) and the agents pick a time from both
-calendars right away, in the background. On pairing, Mayo's Dot says "Dots connected! We're now
-starting auto schedule." (PEBBLE_SAY_CONNECTED=1, the default for mayo only; frankie stays silent),
+calendars right away, in the background. On pairing, Mayo's Dot says "Dots connected. We will get
+back to you once we are done." (PEBBLE_SAY_CONNECTED=1, the default for mayo only; frankie stays silent),
 slower than other speech (PEBBLE_CONNECTED_RATE), with a pause after each sentence, while its LED
 stays bright white (not blue). The line is made with MMS at startup so it plays at once.
 Then poll GET /sessions/<id> and show it on the LED:
@@ -71,7 +71,14 @@ GREEN_S = float(os.environ.get("PEBBLE_GREEN_S", 60))
 BREATHE_S = float(os.environ.get("PEBBLE_BREATHE_S", 3.0))  # one slow yellow breath
 ANNOUNCE = os.environ.get("PEBBLE_ANNOUNCE", "tap").lower()  # tap (say a new time on tap/press) | auto
 SAY_CONNECTED = os.environ.get("PEBBLE_SAY_CONNECTED", "1" if OWNER == "mayo" else "0") == "1"
-CONNECTED_LINE = os.environ.get("PEBBLE_CONNECTED_LINE", "Dots connected! We're now starting auto schedule.")
+CONNECTED_DEFAULT = "Dots connected. We will get back to you once we are done."
+CONNECTED_LINE = os.environ.get("PEBBLE_CONNECTED_LINE", CONNECTED_DEFAULT)  # printed, and what espeak reads
+# What MMS is given for the connected line, one sentence each (RJ's pick, clip A_dawts_connekted_we_will):
+# "dawts connekted" comes out as "Dots connected" (MMS blurs the plain spelling). For this line only;
+# "Dots" elsewhere is still mms_text's "dotts". PEBBLE_CONNECTED_SPOKEN overrides; a custom
+# PEBBLE_CONNECTED_LINE without it is spoken through mms_text like any other line.
+CONNECTED_SPOKEN = os.environ.get("PEBBLE_CONNECTED_SPOKEN") or (
+    "dawts connekted. we will get back to you once we are done." if CONNECTED_LINE == CONNECTED_DEFAULT else None)
 # the connected line is said slower than the rest (MMS VITS speaking_rate; the rest use 0.85),
 # one sentence at a time, with a pause after each sentence
 CONNECTED_RATE = float(os.environ.get("PEBBLE_CONNECTED_RATE", 0.75))
@@ -349,7 +356,8 @@ def connected_pcm():
     """The connected line: each sentence on its own (even short ones), at CONNECTED_RATE, with
     CONNECTED_PAUSE_S of silence after each sentence and a CONNECTED_TAIL_S tail after the last."""
     np = mms["np"]
-    said = [c for c in re.split(r"(?<=[.?!])\s+", mms_text(CONNECTED_LINE)) if re.search("[a-z]", c)]
+    said = [c for c in re.split(r"(?<=[.?!])\s+", CONNECTED_SPOKEN or mms_text(CONNECTED_LINE))
+            if re.search("[a-z]", c)]
     for i, c in enumerate(said):
         a = mms_one(c, CONNECTED_RATE)
         if len(a):

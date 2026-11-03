@@ -1,6 +1,6 @@
 """The two-person scene: tap both Dots within the 5 s pair window -> both LEDs go bright white,
 then breathe yellow while the agents pick a time in the background; Mayo's Dot (the Pi) says
-"Dots connected! We're now starting auto schedule." at once (MMS made at startup, slower, a
+"Dots connected. We will get back to you once we are done." at once (MMS made at startup, slower, a
 pause after each sentence) with its LED still bright white, not blue; Frankie's (UNO Q) says
 nothing; then neither Dot speaks on its own until its owner presses the pad or taps it.
 No network, hardware or models: the session, LED, aplay and the voice are stubbed."""
@@ -34,7 +34,7 @@ for name, mod, extra in [("pi", "pi_pebble", {"PEBBLE_ID": "mayo"}), ("unoq", "u
     out = subprocess.run([sys.executable, "-c", probe.format(mod=mod)], env={**env, **extra},
                          capture_output=True, text=True, check=True).stdout
     got[name] = json.loads(out.strip().splitlines()[-1])
-LINE = "Dots connected! We're now starting auto schedule."
+LINE = "Dots connected. We will get back to you once we are done."
 assert got["pi"] == ["mayo", True, "tap", LINE], got
 assert got["unoq"] == ["frankie", False, "tap", LINE], got
 assert got["pi as frankie"][1] is False and got["override"][1] is True, got
@@ -167,10 +167,18 @@ made = []
 pb.mms.update(np=SimpleNamespace(int16="h", zeros=lambda n, dtype: array(dtype, [0]) * n))  # no numpy needed
 pb.mms_one = lambda c, rate=pb.MMS_RATE: (made.append((c, rate)), array("h", [1]) * 1600)[1]
 parts = list(pb.connected_pcm())
-assert made == [("dotts connected!", 0.75), ("we're now starting auto schedule.", 0.75)], made
+# MMS gets RJ's pick (clip A_dawts_connekted_we_will): "dawts connekted" for this line only
+assert made == [("dawts connekted.", 0.75), ("we will get back to you once we are done.", 0.75)], made
+assert pb.mms_text("Both Dots ask: Morning?") == "both dotts ask, morning?"  # other lines: unchanged
 assert pb.CONNECTED_RATE == 0.75 < pb.MMS_RATE == 0.85 and pb.CONNECTED_PAUSE_S == 0.45
 assert [len(x) for x in parts] == [2 * (1600 + 7200), 2 * (1600 + 3200)], [len(x) for x in parts]  # 0.45 s pause, 0.2 s tail
-print("OK connected line: two sentences at speaking_rate 0.75 (others 0.85), 450 ms between, 200 ms tail")
+line, spoken = pb.CONNECTED_LINE, pb.CONNECTED_SPOKEN
+pb.CONNECTED_LINE, pb.CONNECTED_SPOKEN, made[:] = "Dots connected! Hello there.", None, []
+list(pb.connected_pcm())  # a custom PEBBLE_CONNECTED_LINE: through mms_text like any line
+assert made == [("dotts connected!", 0.75), ("hello there.", 0.75)], made
+pb.CONNECTED_LINE, pb.CONNECTED_SPOKEN = line, spoken
+print("OK connected line: 'dawts connekted.' + 'we will get back to you once we are done.' at speaking_rate "
+      "0.75 (others 0.85), 450 ms between, 200 ms tail; custom lines go through mms_text")
 
 # ---- espeak (before MMS loads): the connected line is slower, other lines aren't --------------
 (STUBS / "espeak-ng").write_text('#!/bin/sh\necho "$@" >> "$FAKE_ESPEAK_LOG"\n')

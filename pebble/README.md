@@ -16,7 +16,7 @@ booked on both calendars (60 s, then dim white). No red.
 
 There is no question up front: tap both Dots within 5 s (the server's
 `KETCHUP_PAIR_WINDOW_S`) and the agents pick a day and time from both calendars in the
-background. On pairing, Mayo's Dot says "Dots connected! We're now starting auto schedule."
+background. On pairing, Mayo's Dot says "Dots connected. We will get back to you once we are done."
 slowly, with a pause after each sentence (made with MMS at startup, so it plays at once); its LED
 stays bright white while it plays, then breathes yellow. Frankie's Dot stays silent. When a time is ready the LED
 stops breathing and goes bright white, and the Dot says nothing until you tap it or press the
@@ -61,7 +61,10 @@ catch up Thursday"), `PEBBLE_GREEN_S` (green hold, default 60), `PEBBLE_TTS=espe
 (skip MMS and use espeak only), `PEBBLE_BREATHE_S` (one breath, default 3),
 `PEBBLE_ANNOUNCE=auto` (speak every new time without waiting for a tap/press; default `tap`),
 `PEBBLE_SAY_CONNECTED` (`1` = say the connected line on pairing; default `1` for mayo, `0`
-otherwise), `PEBBLE_CONNECTED_LINE` (default "Dots connected! We're now starting auto schedule."),
+otherwise), `PEBBLE_CONNECTED_LINE` (default "Dots connected. We will get back to you once we are done."),
+`PEBBLE_CONNECTED_SPOKEN` (what MMS reads for that line; the default line is read as
+"dawts connekted. we will get back to you once we are done." so MMS says "Dots connected" clearly,
+for this line only; espeak and the terminal use the written line),
 `PEBBLE_CONNECTED_RATE` (MMS speaking rate for that line, default 0.75; other speech is 0.85),
 `PEBBLE_CONNECTED_PAUSE_MS` (pause between its sentences, default 450; 200 ms tail),
 `PEBBLE_CONNECTED_ESPEAK_WPM` (espeak speed for it, default 130),

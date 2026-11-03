@@ -39,7 +39,7 @@ log in or connect any account. The organizers allow mock data.
 1. **Tap.** After someone says a plan ("let's catch up sometime next week"), both Dots
    are tapped together. A magnet and Hall sensor detect the tap, and the server pairs two
    taps that arrive within 5 s (`KETCHUP_PAIR_WINDOW_S`). Both LEDs go bright white. Mayo's
-   Dot says "Dots connected! We're now starting auto schedule." slowly, still bright white,
+   Dot says "Dots connected. We will get back to you once we are done." slowly, still bright white,
    then breathes yellow while the agents pick a time (Frankie's Dot is silent and breathes
    right away). Nothing else is spoken until someone presses their Dot.
 2. **Negotiate first.** Each person has their own agent. Right after the tap, with no

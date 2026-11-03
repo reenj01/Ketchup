@@ -275,7 +275,8 @@ def main():
         print(f"UNO Q presses: {longs} long (keep), {holds_} spoken answers; lines:", ", ".join(tee.mics))
     ok = all(w in it for w in want) and "red" not in seq and holds_ + longs >= 1 and not pb.now["rec"] and toggles \
         and before == want_before and early == ["dim white", "bright white", "yellow breathing", "bright white"] \
-        and bool(slow) == pb.SAY_CONNECTED
+        and bool(slow) == pb.SAY_CONNECTED and all(x.endswith("--stdout " + pb.CONNECTED_LINE) for x in slow) \
+        and pb.CONNECTED_LINE == "Dots connected. We will get back to you once we are done."
     print("ALL GOOD" if ok else "SOMETHING FAILED", flush=True)
     raise SystemExit(0 if ok else 1)
 
