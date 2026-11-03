@@ -597,7 +597,7 @@ def main():
     led = RGBLED(red=27, green=22, blue=23)  # common cathode: high = on
     # no gpiozero bounce_time: its debounce waits for the level to settle, which an FSR near the
     # threshold drags out; on_press acts on the first edge and ignores the next 50 ms instead
-    fsr = Button(24, pull_up=None, active_state=True, bounce_time=None)  # 10K pulldown, press = high
+    fsr = Button(24, pull_up=False, bounce_time=None)  # internal pull-down (plus the 10K), so a loose resistor cannot float the pin; press = high
     hall = Button(17, pull_up=True, bounce_time=0.05)  # KY-003 pulls low with a magnet
     hall.when_pressed = lambda: threading.Thread(target=on_tap, daemon=True).start()
     fsr.when_pressed, fsr.when_released = on_press, on_release
