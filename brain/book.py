@@ -27,7 +27,7 @@ def body(people, start: datetime, minutes: int, activity: str, tentative=False):
         "summary": title(people, activity) + (MARK if tentative else ""),
         "status": "tentative" if tentative else "confirmed",
         "description": f"Booked by Ketchup. {names} said they'd {activity}, "
-                       "tapped their pebbles, and their agents picked this time."
+                       "tapped their Dots, and their agents picked this time."
                        + (" Tentative until someone keeps it or the day ends." if tentative else ""),
         "start": {"dateTime": start.isoformat(), "timeZone": "America/New_York"},
         "end": {"dateTime": (start + timedelta(minutes=minutes)).isoformat(),

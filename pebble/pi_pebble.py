@@ -133,6 +133,7 @@ def mms_text(text):
     t = re.sub(r"\d+", lambda m: f" {words(int(m[0]))} ", t)
     t = re.sub(r"\bET\b", "", t)
     t = re.sub(r"\b[Tt]onight\b", "this evening", t)  # MMS says "tu night"
+    t = re.sub(r"\b[Dd]ots\b", "dotts", t)  # MMS blurs "both dots ask" into "both Dutch"
     t = re.sub(r"\s*[:;]\s*", ", ", t)
     t = re.sub(r"[^a-zA-Z' ,.?!-]", " ", t).lower()
     t = re.sub(r"\s+([,.?!])", r"\1", t)
@@ -311,7 +312,7 @@ def reply(wav):
     if not text:
         return say("Sorry, I didn't catch that.")
     if not now["sid"]:
-        return say("Touch pebbles with a friend first.")
+        return say("Touch Dots with a friend first.")
     t0 = time.monotonic()
     r = call(f"/sessions/{now['sid']}/answer", {"device_id": DEVICE, "answer": text})
     print(f"TIME server reply {time.monotonic() - t0:.1f} s", flush=True)
@@ -364,7 +365,7 @@ def main():
     hall = Button(17, pull_up=True, bounce_time=0.05)  # KY-003 pulls low with a magnet
     hall.when_pressed = lambda: threading.Thread(target=on_tap, daemon=True).start()
     fsr.when_pressed, fsr.when_released = on_press, on_release
-    print(f"Ketchup pebble {DEVICE} -> {SERVER}", flush=True)
+    print(f"Ketchup Dot {DEVICE} -> {SERVER}", flush=True)
     show(WHITE)
     while True:
         try:

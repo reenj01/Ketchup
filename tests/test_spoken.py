@@ -53,3 +53,8 @@ for line in (Neutral("Mayo").spoken("Friday at 10:30 AM"), Neutral("Mayo", "back
     assert len(sentences) <= 3 and all(len(s.split()) <= 12 for s in sentences), line
     assert not re.search(r"pencil|tentative|confirmed|:\d\d [AP]M ET", line), line
 print("OK spoken lines: short, plain")
+
+# "Dots" is respelled so MMS doesn't blur "both Dots ask" into "both Dutch"
+assert pb.mms_text("Both Dots ask: Morning?") == "both dotts ask, morning?", pb.mms_text("Both Dots ask: Morning?")
+assert pb.mms_text("Mayo's Dot") == "mayo's dot"
+print("OK Dots respelled for MMS")

@@ -158,4 +158,4 @@ heard = lead["pebble-frankie"].text("Friday Oct 30 at 10:30 AM")
 assert not [w for w in ("thursday", "later", "dentist", "said", raw) if w in heard.lower()], heard
 said = lead["pebble-frankie"].spoken("Friday at 10:30 AM")  # the short line the pebble speaks
 assert not [w for w in ("thursday", "later", "dentist", "said", raw) if w in said.lower()], said
-print("OK privacy (pebble): Frankie's pebble:", heard)
+print("OK privacy (Dot): Frankie's Dot:", heard)

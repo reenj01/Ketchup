@@ -160,10 +160,10 @@ class Session:
         self.questions = {d: {"kind": kind, "say": t, "choices": CHOICES[kind]} for d, t in say.items()}
         self.step("ask", kind=kind, say=say, devices=list(self.questions))
         if len(set(say.values())) == 1:
-            self.say(f'Both pebbles say: "{next(iter(say.values()))}"')
+            self.say(f'Both Dots say: "{next(iter(say.values()))}"')
         else:
             for p in self.people:
-                self.say(f'{p["name"]}\'s pebble says: "{say[p["device_id"]]}"')
+                self.say(f'{p["name"]}\'s Dot says: "{say[p["device_id"]]}"')
 
     # ---- 1. start: plan, habits, nudge, ask morning/noon/night ----------------
     def start(self, ask=True):

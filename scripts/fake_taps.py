@@ -97,7 +97,7 @@ def main():
     r = two_taps(url, 0.5)
     sids = {x.get("session_id") for x in r.values()}
     ok1 = all(x["status"] == "paired" for x in r.values()) and len(sids) == 1
-    print(f"  -> {'PAIRED' if ok1 else 'FAIL'} (same session on both pebbles: {len(sids) == 1})")
+    print(f"  -> {'PAIRED' if ok1 else 'FAIL'} (same session on both Dots: {len(sids) == 1})")
     if ok1:
         s = converse(url, sids.pop())
         print("  Server log:")

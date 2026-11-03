@@ -69,17 +69,17 @@ def main():
             while q:
                 if q["kind"] == "time_of_day":
                     ans = a[key] if a[key] is not None else input(
-                        f"[{p['name']}'s pebble] {q['say']} (Enter = no answer) ")
+                        f"[{p['name']}'s Dot] {q['say']} (Enter = no answer) ")
                     a[key] = ""  # answer once
                 else:
                     ans = confirms[key].pop(0) if confirms[key] else "" if scripted else input(
-                        f"[{p['name']}'s pebble] {q['say']} (Enter = no reply) ")
+                        f"[{p['name']}'s Dot] {q['say']} (Enter = no reply) ")
                 if not ans or ans == "timeout":
                     break
                 r = s.answer(p["device_id"], ans)
                 answered = True
                 if r.get("say"):
-                    print(f'[{p["name"]}\'s pebble] {r["say"]}')
+                    print(f'[{p["name"]}\'s Dot] {r["say"]}')
                 if s.state == "pencilled_in":
                     s.advance()  # a keep or change acts right away
                 q = s.questions.get(p["device_id"])

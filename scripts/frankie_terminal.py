@@ -33,7 +33,7 @@ def main():
     ap.add_argument("--url", default="http://localhost:8787")
     url = ap.parse_args().url
     while True:
-        input("Frankie: press Enter as you tap the Pi pebble... ")
+        input("Frankie: press Enter as you tap the Pi Dot... ")
         r = call(url, "/tap", {"device_id": DEVICE})
         print("TAP", r.get("status"))
         if r.get("status") == "paired":

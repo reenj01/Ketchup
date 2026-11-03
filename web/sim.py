@@ -201,7 +201,7 @@ class Sim:
 
     def answer(self, key, text, how):
         if key not in DEV:
-            return 400, {"ok": False, "error": "unknown pebble"}
+            return 400, {"ok": False, "error": "unknown Dot"}
         if self.answers >= MAX_ANSWERS or len(self.calls()) >= MAX_CALLS:
             return 429, {"ok": False, "error": "This session hit its limit. Press New session to start again."}
         text = (text or "").strip()[:200]
@@ -353,7 +353,7 @@ class Handler(classic.Handler):
         if len(wav) < 44 + 3200 or wav[:4] != b"RIFF":
             return self.send(400, {"error": "Too short. Hold the button while you talk."})
         if key not in DEV:
-            return self.send(400, {"error": "unknown pebble"})
+            return self.send(400, {"error": "unknown Dot"})
         if sim.answers >= MAX_ANSWERS or len(sim.calls()) >= MAX_CALLS:
             return self.send(429, {"error": "This session hit its limit. Press New session to start again."})
         t0 = time.monotonic()
@@ -363,7 +363,7 @@ class Handler(classic.Handler):
         except Exception as e:
             text, ok, err = "", False, f"{type(e).__name__}"
         timing.record(kind="model", model=ASR_ID, ok=ok, seconds=time.monotonic() - t0, sid=sim.id,
-                      label="asr", what=f"Speech to text on {PEOPLE[key]['name']}'s pebble"
+                      label="asr", what=f"Speech to text on {PEOPLE[key]['name']}'s Dot"
                       + (f': "{text[:40]}"' if text else ""))
         if not ok:
             return self.send(502, {"error": f"Speech to text failed ({err}). Try again or type it."})
@@ -397,7 +397,7 @@ class Handler(classic.Handler):
 # this session's own log lines or this small set of words the page uses to phrase them.
 WORD = re.compile(r"[a-z0-9]+")
 NOTE_WORDS = set("""suggests counters with agrees to shares free times not events didn t answer so the agent
-went usual pencilled in on both calendars booked ask pebbles s am pm et monday tuesday wednesday thursday
+went usual pencilled in on both calendars booked ask pebbles dots dot s am pm et monday tuesday wednesday thursday
 friday saturday sunday january february march april may june july august september october november
 december""".split())
 
