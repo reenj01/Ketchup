@@ -1,6 +1,7 @@
 """The two-person scene: tap both Dots within the 5 s pair window -> both LEDs go bright white,
 then breathe yellow while the agents pick a time in the background; Mayo's Dot (the Pi) says
-"Dots connected. Starting auto schedule." at once (MMS made at startup), Frankie's (UNO Q) says
+"Dots connected! We're now starting auto schedule." at once (MMS made at startup, slower, a
+pause after each sentence) with its LED still bright white, not blue; Frankie's (UNO Q) says
 nothing; then neither Dot speaks on its own until its owner presses the pad or taps it.
 No network, hardware or models: the session, LED, aplay and the voice are stubbed."""
 import json
@@ -33,7 +34,7 @@ for name, mod, extra in [("pi", "pi_pebble", {"PEBBLE_ID": "mayo"}), ("unoq", "u
     out = subprocess.run([sys.executable, "-c", probe.format(mod=mod)], env={**env, **extra},
                          capture_output=True, text=True, check=True).stdout
     got[name] = json.loads(out.strip().splitlines()[-1])
-LINE = "Dots connected. Starting auto schedule."
+LINE = "Dots connected! We're now starting auto schedule."
 assert got["pi"] == ["mayo", True, "tap", LINE], got
 assert got["unoq"] == ["frankie", False, "tap", LINE], got
 assert got["pi as frankie"][1] is False and got["override"][1] is True, got
@@ -85,17 +86,20 @@ class LED:
 
 
 def scene(say_connected):
-    leds, said = [], []
+    leds, said, during = [], [], []
     pb.print = lambda *a, **k: (" ".join(map(str, a)).startswith("LED ") and leds.append(" ".join(map(str, a))[4:]))
 
     def slow_say(text):  # what say() does to the LED; slow, to prove the tap doesn't wait for it
         said.append((round(time.monotonic() - t0, 2), text))
         pb.now["speaking"] = True
         pb.refresh()
+        during.append(pb.NAMES[pb.now["led"]])
         time.sleep(0.6)
+        n_leds.append(len(leds))
         pb.now["speaking"] = False
         pb.refresh()
 
+    n_leds = []
     pb.say, pb.SAY_CONNECTED, pb.led = slow_say, say_connected, LED()
     pb.now.update(sid=None, heard=None, answered=None, pending=None, engaged=False, green_until=0, rec=None,
                   led=None, gen=0, round=0, talk_until=0, mode="ready", speaking=False, hush=None, player=[],
@@ -121,18 +125,20 @@ def scene(say_connected):
         time.sleep(0.01)
     time.sleep(0.7)
     pb.print, pb.say = print, REAL_SAY
-    return leds, quiet, said, tap_s
+    return leds, quiet, said, tap_s, during, n_leds
 
 
-leds, quiet, said, tap_s = scene(True)
+leds, quiet, said, tap_s, during, n_leds = scene(True)
 assert [x for _, x in quiet] == [LINE], quiet
 assert quiet[0][0] < 0.1 and tap_s < 0.1, (quiet, tap_s)  # spoken at once; the tap didn't wait for it
-assert leds == ["dim white", "bright white", "blue (talking)", "yellow breathing", "bright white",
+assert leds == ["dim white", "bright white", "yellow breathing", "bright white",
                 "blue (talking)", "bright white"], leds
+assert during[0] == "bright white" and during[1] == "blue (talking)", during  # the line: white; the time: blue
+assert n_leds[0] == 2, (n_leds, leds)  # while the line played the LED stayed bright white; breathing came after
 assert said[-1][1] == "How about Tuesday at 6 PM? Want to change it?", said
 print("OK Mayo's Dot:", " -> ".join(leds), "| said:", [x for _, x in said])
 
-leds, quiet, said, _ = scene(False)
+leds, quiet, said, _, during, _ = scene(False)
 assert quiet == [], quiet
 assert leds == ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)",
                 "bright white"], leds
@@ -152,4 +158,30 @@ pb.say(LINE)
 pb.print = print
 assert out.read_bytes() == pcm and time.monotonic() - t0 < 1.0
 print(f"OK connected line played from the startup PCM in {time.monotonic() - t0:.2f} s, no model call")
+
+# ---- how the connected line is made: one sentence at a time, slower, a pause after each ---------
+from array import array  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+made = []
+pb.mms.update(np=SimpleNamespace(int16="h", zeros=lambda n, dtype: array(dtype, [0]) * n))  # no numpy needed
+pb.mms_one = lambda c, rate=pb.MMS_RATE: (made.append((c, rate)), array("h", [1]) * 1600)[1]
+parts = list(pb.connected_pcm())
+assert made == [("dotts connected!", 0.75), ("we're now starting auto schedule.", 0.75)], made
+assert pb.CONNECTED_RATE == 0.75 < pb.MMS_RATE == 0.85 and pb.CONNECTED_PAUSE_S == 0.45
+assert [len(x) for x in parts] == [2 * (1600 + 7200), 2 * (1600 + 3200)], [len(x) for x in parts]  # 0.45 s pause, 0.2 s tail
+print("OK connected line: two sentences at speaking_rate 0.75 (others 0.85), 450 ms between, 200 ms tail")
+
+# ---- espeak (before MMS loads): the connected line is slower, other lines aren't --------------
+(STUBS / "espeak-ng").write_text('#!/bin/sh\necho "$@" >> "$FAKE_ESPEAK_LOG"\n')
+(STUBS / "espeak-ng").chmod(0o755)
+os.environ["FAKE_ESPEAK_LOG"] = str(STUBS / "espeak.log")
+pb.mms.clear()
+pb.print = lambda *a, **k: None
+pb.say(LINE)
+pb.say("How about Tuesday at 6 PM?")
+pb.print = print
+calls = (STUBS / "espeak.log").read_text().splitlines()
+assert calls == ["-s 130 --stdout " + LINE, "--stdout How about Tuesday at 6 PM?"], calls
+print("OK espeak fallback:", calls)
 print("test_dot_connected: OK")

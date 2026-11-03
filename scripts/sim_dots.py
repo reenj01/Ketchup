@@ -1,6 +1,7 @@
 """Both physical Dots at once against a running tap server (python server/tap_server.py --dry-run):
 Mayo taps first, Frankie --gap s later (inside the server's 5 s pair window). On pairing Mayo's Dot
-says "Dots connected. Starting auto schedule."; Frankie's stays silent. Both people walk away for
+says "Dots connected! We're now starting auto schedule." (LED bright white, not blue, then yellow
+breathing); Frankie's stays silent. Both people walk away for
 --walk-away s after a time is ready: neither Dot may speak until its owner presses the pad.
 Then Mayo on the Pi code (mock pins) talks over the first time (a press cuts the voice and opens the
 mic), asks "no, pick a time at night", then keeps the new time;

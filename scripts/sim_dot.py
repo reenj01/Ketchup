@@ -10,7 +10,7 @@
 Stubs (no hardware): arecord "records" a 1 s silent WAV until stopped, espeak-ng only logs, aplay
 "plays" for 0.6 s, and Muse Voice Transcribe is replaced by the next --say line, so the Dot sends
 no audio anywhere. The flow it drives: tap at --at -> agents decide (Mayo's Dot says the connected
-line) -> a time is ready -> the owner is away for --walk-away s and the Dot must say nothing -> a press
+line, its LED bright white, not blue) -> a time is ready -> the owner is away for --walk-away s and the Dot must say nothing -> a press
 hears it (with --interrupt, a second press while it talks cuts it off and opens the mic) ->
 press once (mic ON, with a 10 ms bounce that must not toggle twice), say the next line (then
 "keep" for every later time), press again (mic OFF, sent) -> ... -> booked.
@@ -80,6 +80,7 @@ class Tee(io.TextIOBase):
         self.out, self.t0, self.buf, self.leds, self.mics, self.says = out, t0, "", [], [], []
         self.first_press = None  # seconds in, when the owner first pressed the pad
         self.said_before = None  # how many SAY lines came before that press
+        self.leds_before = None  # how many LED lines came before that press
 
     def write(self, s):
         self.buf += s
@@ -179,6 +180,7 @@ def main():
     def click(bounce=False):
         if tee.first_press is None:
             tee.first_press, tee.said_before = round(time.monotonic() - tee.t0, 1), len(tee.says)
+            tee.leds_before = len(tee.leds)
         press()
         if bounce:  # the FSR chatters 10 ms into the press: must not count as a second press
             time.sleep(0.01); release(); time.sleep(0.01); press()
@@ -235,6 +237,12 @@ def main():
     want_before = [pb.CONNECTED_LINE] if pb.SAY_CONNECTED else []
     print(f"spoken before the first press ({tee.first_press} s):", before or "nothing")
     print("spoken in all:", "; ".join(f'{t}s "{x}"' for t, x in tee.says))
+    early = [c for _, c in tee.leds[:tee.leds_before]]
+    early = [c for i, c in enumerate(early) if i == 0 or early[i - 1] != c]
+    print("LEDs before the first press:", " -> ".join(early))
+    slow = [x for x in log if x.startswith("espeak") and "-s" in x.split()]
+    if pb.SAY_CONNECTED:
+        print("connected line through the stub espeak:", slow[0] if slow else "NOT SLOWED")
     # this Dot's owner asked for a change: the agents decided again right after its mic went off
     change = ["yellow breathing"] if args.say else []
     want = ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)", "yellow (mic on)",
@@ -242,7 +250,8 @@ def main():
     it = iter(seq)
     toggles = tee.mics == ["MIC ON", "MIC OFF"] * holds_  # one press = one toggle, bounce and all
     ok = all(w in it for w in want) and "red" not in seq and holds_ >= 1 and not pb.now["rec"] and toggles \
-        and before == want_before
+        and before == want_before and early == ["dim white", "bright white", "yellow breathing", "bright white"] \
+        and bool(slow) == pb.SAY_CONNECTED
     print("ALL GOOD" if ok else "SOMETHING FAILED", flush=True)
     raise SystemExit(0 if ok else 1)
 

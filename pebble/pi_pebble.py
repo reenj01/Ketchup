@@ -2,12 +2,14 @@
 
 Touch two pebbles together (KY-003 Hall sensor) -> POST /tap; the server pairs
 two taps within 5 s (the server's KETCHUP_PAIR_WINDOW_S) and the agents pick a time from both
-calendars right away, in the background. On pairing, Mayo's Dot says "Dots connected. Starting
-auto schedule." (PEBBLE_SAY_CONNECTED=1, the default for mayo only; frankie stays silent); the
-line is made with MMS at startup so it plays at once.
+calendars right away, in the background. On pairing, Mayo's Dot says "Dots connected! We're now
+starting auto schedule." (PEBBLE_SAY_CONNECTED=1, the default for mayo only; frankie stays silent),
+slower than other speech (PEBBLE_CONNECTED_RATE), with a pause after each sentence, while its LED
+stays bright white (not blue). The line is made with MMS at startup so it plays at once.
 Then poll GET /sessions/<id> and show it on the LED:
   dim white        = at rest (no session)
-  bright white     = tapped / paired, a time is ready, or waiting on the other person
+  bright white     = tapped / paired (and while the connected line plays), a time is ready,
+                     or waiting on the other person
   yellow breathing = the agents are deciding (picking or re-picking a time)
   blue             = the Dot (the AI agent) is talking
   solid yellow     = the mic is on (recording)
@@ -65,7 +67,13 @@ GREEN_S = float(os.environ.get("PEBBLE_GREEN_S", 60))
 BREATHE_S = float(os.environ.get("PEBBLE_BREATHE_S", 3.0))  # one slow yellow breath
 ANNOUNCE = os.environ.get("PEBBLE_ANNOUNCE", "tap").lower()  # tap (say a new time on tap/press) | auto
 SAY_CONNECTED = os.environ.get("PEBBLE_SAY_CONNECTED", "1" if OWNER == "mayo" else "0") == "1"
-CONNECTED_LINE = os.environ.get("PEBBLE_CONNECTED_LINE", "Dots connected. Starting auto schedule.")
+CONNECTED_LINE = os.environ.get("PEBBLE_CONNECTED_LINE", "Dots connected! We're now starting auto schedule.")
+# the connected line is said slower than the rest (MMS VITS speaking_rate; the rest use 0.85),
+# one sentence at a time, with a pause after each sentence
+CONNECTED_RATE = float(os.environ.get("PEBBLE_CONNECTED_RATE", 0.75))
+CONNECTED_PAUSE_S = float(os.environ.get("PEBBLE_CONNECTED_PAUSE_MS", 450)) / 1000
+CONNECTED_TAIL_S = 0.2  # silence after its last sentence, before the LED starts breathing
+CONNECTED_ESPEAK_WPM = int(os.environ.get("PEBBLE_CONNECTED_ESPEAK_WPM", 130))  # espeak's default is 175
 TALK_MIN_S = float(os.environ.get("PEBBLE_TALK_MIN_S", 2.5))  # after a change both Dots breathe at least this long
 DIM = float(os.environ.get("PEBBLE_DIM", 0.12))  # dim white at rest
 DEBOUNCE_S = float(os.environ.get("PEBBLE_DEBOUNCE_MS", 50)) / 1000  # FSR edges closer than this are bounce
@@ -103,8 +111,10 @@ def wanted():
     """The one colour the LED should show now, most urgent first."""
     if now["rec"]:
         return YELLOW
-    if now["speaking"] or now["booking"] or now["greeting"]:
-        return BLUE  # talking (or about to say it's booked / that the Dots connected)
+    if now["greeting"]:
+        return WHITE  # "Dots connected!": stays bright white while it plays, then breathes
+    if now["speaking"] or now["booking"]:
+        return BLUE  # talking (or about to say it's booked)
     if now["sid"]:
         return BREATHE if now["mode"] == "talking" else WHITE
     if now["busy"]:
@@ -232,6 +242,7 @@ def chunks(text):
 
 
 mms = {}  # loaded once: model, tokenizer, torch, numpy
+mms_lock = threading.Lock()  # one synthesis at a time (the connected line changes the rate for its run)
 
 
 def load_mms():
@@ -242,12 +253,12 @@ def load_mms():
         from transformers import AutoTokenizer, VitsModel
         t0 = time.monotonic()
         m = VitsModel.from_pretrained(MMS_ID).eval()
-        m.speaking_rate, m.noise_scale, m.noise_scale_duration = 0.85, 0.05, 0.1  # calm, clear consonants
+        m.speaking_rate, m.noise_scale, m.noise_scale_duration = MMS_RATE, 0.05, 0.1  # calm, clear consonants
         mms.update(model=m, tok=AutoTokenizer.from_pretrained(MMS_ID), torch=torch, np=np)
         for _ in mms_pcm("warming up the voice now"):  # first run is slow; pay it at startup
             pass
         if SAY_CONNECTED:  # made once now, so it plays the moment the Dots pair
-            ready_pcm[CONNECTED_LINE] = b"".join(mms_pcm(CONNECTED_LINE))
+            ready_pcm[CONNECTED_LINE] = b"".join(connected_pcm())
         print(f"VOICE Meta MMS-TTS ready ({time.monotonic() - t0:.0f} s)", flush=True)
     except Exception as e:
         print(f"VOICE MMS-TTS unavailable ({type(e).__name__}: {e}); using espeak-ng", flush=True)
@@ -285,23 +296,49 @@ def trim(a, np, floor=0.03, keep_s=0.02, pause_s=0.2):
     return np.concatenate([a[x:y] for x, y in out])
 
 
+MMS_RATE = 0.85  # VitsModel.speaking_rate for all speech (1.0 = the model's own pace)
+
+
+def mms_one(c, rate=MMS_RATE):
+    """One sentence -> trimmed int16 samples. `rate` is VITS's speaking_rate (its length_scale is
+    1 / rate: slower, same pitch). Set on the model for this call only, under mms_lock."""
+    torch, np, m, tok = mms["torch"], mms["np"], mms["model"], mms["tok"]
+    with mms_lock, torch.no_grad():
+        torch.manual_seed(0)  # same line, same voice
+        m.speaking_rate = rate
+        try:
+            a = trim(m(**tok(c, return_tensors="pt")).waveform[0].numpy(), np)
+        finally:
+            m.speaking_rate = MMS_RATE
+    return (a / max(abs(a).max(), 1e-6) * 0.9 * 32767).astype(np.int16) if len(a) else a
+
+
 def mms_pcm(text, gap=None):
     """Text -> 16 kHz mono int16 PCM from MMS-TTS, one sentence at a time, silence trimmed,
     `gap` seconds (GAP_S) of silence before every sentence after the first."""
-    torch, np, m, tok = mms["torch"], mms["np"], mms["model"], mms["tok"]
+    np = mms["np"]
     gap = GAP_S if gap is None else gap
     first = True
     for c in chunks(mms_text(text)):
         if not re.search("[a-z]", c):
             continue
-        torch.manual_seed(0)  # same line, same voice
-        with torch.no_grad():
-            a = trim(m(**tok(c, return_tensors="pt")).waveform[0].numpy(), np)
+        a = mms_one(c)
         if not len(a):
             continue
-        a = (a / max(abs(a).max(), 1e-6) * 0.9 * 32767).astype(np.int16)
         yield (b"" if first else np.zeros(int(16000 * gap), np.int16).tobytes()) + a.tobytes()
         first = False
+
+
+def connected_pcm():
+    """The connected line: each sentence on its own (even short ones), at CONNECTED_RATE, with
+    CONNECTED_PAUSE_S of silence after each sentence and a CONNECTED_TAIL_S tail after the last."""
+    np = mms["np"]
+    said = [c for c in re.split(r"(?<=[.?!])\s+", mms_text(CONNECTED_LINE)) if re.search("[a-z]", c)]
+    for i, c in enumerate(said):
+        a = mms_one(c, CONNECTED_RATE)
+        if len(a):
+            rest = CONNECTED_PAUSE_S if i < len(said) - 1 else CONNECTED_TAIL_S
+            yield a.tobytes() + np.zeros(int(16000 * rest), np.int16).tobytes()
 
 
 def hush():
@@ -338,7 +375,8 @@ def say_mms(text, stop, t_text):
 
     def make():
         try:
-            for pcm in ([ready_pcm[text]] if text in ready_pcm else mms_pcm(text)):
+            for pcm in ([ready_pcm[text]] if text in ready_pcm else
+                        connected_pcm() if text == CONNECTED_LINE else mms_pcm(text)):
                 if stop.is_set():
                     break
                 parts.put(pcm)
@@ -374,12 +412,13 @@ def say_mms(text, stop, t_text):
         return False
 
 
-def say_espeak(text, stop):
+def say_espeak(text, stop):  # the connected line slower (-s words per minute)
     tts_bin = shutil.which("espeak-ng") or shutil.which("espeak")
     if not tts_bin:
         print("no espeak-ng or espeak; run: sudo apt install -y espeak-ng", flush=True)
         return
-    tts = subprocess.Popen([tts_bin, "--stdout", text], stdout=subprocess.PIPE)
+    slow = ["-s", str(CONNECTED_ESPEAK_WPM)] if text == CONNECTED_LINE else []
+    tts = subprocess.Popen([tts_bin, *slow, "--stdout", text], stdout=subprocess.PIPE)
     play = subprocess.Popen(["aplay", "-q", "-D", CARD], stdin=tts.stdout, stderr=subprocess.DEVNULL)
     tts.stdout.close()
     now["player"] = [tts, play]
@@ -396,7 +435,7 @@ def say(text):
                 return
             stop = now["hush"] = threading.Event()
             now["speaking"] = True
-            refresh()  # blue
+            refresh()  # blue (bright white for the connected line)
             if not (mms and say_mms(text, stop, t_text)) and not stop.is_set():
                 say_espeak(text, stop)
         finally:
@@ -448,7 +487,7 @@ def on_tap():
             now["greeting"] = True
             threading.Thread(target=say_connected, daemon=True).start()
     now["busy"] = False
-    refresh()  # yellow breathing (paired; blue first while the connected line plays) or dim white
+    refresh()  # paired: yellow breathing (Mayo: bright white while the connected line plays); else dim white
 
 
 def say_connected():
