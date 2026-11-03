@@ -17,7 +17,7 @@ Built for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026), Indie 
 ## Demo
 
 - Demo video: **TODO: add link**
-- Live try-it page: **TODO: add link**
+- Live try-it page: [ketchup-sim on Modal](https://ireenjeang0726--ketchup-sim-web.us-east.modal.run). Two virtual pebbles: drag them together to pair, then hold to talk (or type). The model-call list shows each Meta model as it runs. The first visit can take a few seconds if the page has been idle.
 
 The demo uses two seeded mock Google Calendars, Mayo and Frankie. Judges don't need to
 log in or connect any account. The organizers allow mock data.
