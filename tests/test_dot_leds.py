@@ -1,17 +1,30 @@
-"""The physical Dots' LED flow (pi_pebble.py, also run by the UNO Q's unoq_dot.py):
-white -> white breathing while the agents talk -> white when a time is ready (said on a tap or
-press) -> yellow only while the FSR is held -> breathing again after a change -> green when
-booked, then white. No red. Also: the tap server answers polls while the agents hold the
-session, and flow.negotiate_first asks the owners nothing before the agents pick a time.
-Server responses, the LED, and speech are stubbed: no network, no hardware, no model calls."""
+"""The physical Dots' LED flow and mic toggle (pi_pebble.py, also run by the UNO Q's unoq_dot.py):
+dim white at rest -> bright white on the tap -> yellow breathing while the agents decide ->
+bright white when a time is ready -> blue while the Dot talks -> solid yellow while the mic is
+on (press once = on, press again = off and send; 50 ms debounce; auto-stop) -> yellow breathing
+again after a change -> green when booked, then dim white. A press while the Dot talks stops the
+voice and opens the mic. MMS silence trimming. Also: the tap server answers polls while the agents
+hold the session, and flow.negotiate_first asks the owners nothing before the agents pick a time.
+Server, LED, mic (arecord) and speaker (aplay/espeak) are stubbed: no network, hardware or models."""
 import os
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-os.environ.update(PEBBLE_ID="mayo", PEBBLE_TALK_MIN_S="0.3", PEBBLE_GREEN_S="0.3")
+STUBS = Path(tempfile.mkdtemp(prefix="dot_stubs_"))
+for name, body in {
+    "arecord": '#!/bin/sh\nfor a; do out="$a"; done\nhead -c 32044 /dev/zero > "$out"\n'
+               'trap "exit 0" TERM INT\nwhile :; do sleep 0.02; done\n',
+    "espeak-ng": "#!/bin/sh\nhead -c 4000 /dev/zero\n",
+    "aplay": "#!/bin/sh\ncat > /dev/null\nexec sleep ${FAKE_PLAY_S:-0}\n",
+}.items():
+    (STUBS / name).write_text(body)
+    (STUBS / name).chmod(0o755)
+os.environ.update(PEBBLE_ID="mayo", PEBBLE_TALK_MIN_S="0.3", PEBBLE_GREEN_S="0.3", PEBBLE_TTS="espeak",
+                  PATH=f"{STUBS}:{os.environ['PATH']}")
 sys.path.insert(0, str(ROOT / "pebble"))
 sys.path.insert(0, str(ROOT / "pebble" / "unoq"))
 import pi_pebble as pb  # noqa: E402
@@ -20,96 +33,183 @@ import unoq_dot  # noqa: E402
 assert not hasattr(pb, "RED"), "red is gone"
 assert abs(pb.breath_level(0) - 1) < 1e-9 and abs(pb.breath_level(pb.BREATHE_S / 2) - 0.1) < 1e-9
 assert all(0.1 - 1e-9 <= pb.breath_level(t / 10) <= 1 + 1e-9 for t in range(100))
+REAL_SAY, REAL_PRINT = pb.say, print
 
 
 class LED:  # what gpiozero.RGBLED looks like to pi_pebble
     value = pb.OFF
 
 
-def reset(said, board):
-    pb.now.update(sid="s1", heard=None, answered=None, pending=None, engaged=False, green_until=0, rec=None,
-                  led=None, gen=0, round=0, talk_until=0)
+def wait_for(cond, s=3.0):
+    t = time.monotonic() + s
+    while not cond():
+        assert time.monotonic() < t, "timed out"
+        time.sleep(0.01)
+
+
+def reset(board):
+    pb.now.update(sid=None, heard=None, answered=None, pending=None, engaged=False, green_until=0, rec=None,
+                  led=None, gen=0, round=0, talk_until=0, mode="ready", speaking=False, hush=None, player=[],
+                  edge=-1.0, busy=False, booking=False)
     pb.led = unoq_dot.BridgeLED(board) if board else LED()
-    pb.say = said.append
 
 
-def run(leds, said, server, board=None):
-    """Feed tick() one fake server reply per poll."""
-    for reply in server:
-        pb.call = lambda path, body=None, r=reply: r
-        pb.tick()
-        if callable(reply.get("then")):
-            reply["then"]()
-        time.sleep(reply.get("sleep", 0))
-    return leds
+def capture(leds, mics):
+    def p(*a, **k):
+        line = " ".join(map(str, a))
+        if line.startswith("LED ") and not line.startswith("LED green for"):
+            leds.append(line[4:])
+        if line.startswith("MIC "):
+            mics.append(line.split(" -")[0].strip())
+    pb.print = p
 
 
 def q(say, rnd=0):
     return {"state": "pencilled_in", "change_round": rnd, "questions": {pb.DEVICE: {"say": say}}}
 
 
+def press(hold=0.08, gap=0.08):
+    """A clean press: down, held, up, then a pause (longer than the 50 ms debounce)."""
+    pb.on_press()
+    time.sleep(hold)
+    pb.on_release()
+    time.sleep(gap)
+
+
+def fake_say(said):
+    def say(text):  # what say() does to the LED, without audio
+        said.append(text)
+        if pb.now["rec"]:
+            return
+        pb.now["speaking"] = True
+        pb.refresh()
+        time.sleep(0.05)
+        pb.now["speaking"] = False
+        pb.refresh()
+    return say
+
+
 def flow(board=None):
-    leds, said = [], []
-    real_print = pb.print if hasattr(pb, "print") else print
-    def capture(*a, **k):
-        line = " ".join(map(str, a))
-        if line.startswith("LED ") and not line.startswith("LED green for"):
-            leds.append(line[4:])
-    pb.print = capture
+    leds, mics, said, polls = [], [], [], []
+    capture(leds, mics)
+    pb.say = fake_say(said)
+    pb.transcribe = lambda wav: "no, pick a time at night"
+    answer = {"ok": True, "mapped_to": "change", "say": "Got it, I'll look at night."}
+    pb.call = lambda path, body=None: (
+        {"status": "paired", "session_id": "s1"} if path == "/tap" else
+        answer if path.endswith("/answer") else polls.pop(0))
     try:
-        reset(said, board)
-        pb.breathe()  # what on_tap does once paired
-        run(leds, said, [
-            {"state": "proposing", "busy": True, "change_round": 0},  # agents talking, lock held
-            q("How about Tuesday at 6 PM? Want to change it?"),  # ready: white, waits for a tap/press
-        ], board)
+        reset(board)
+        pb.refresh()  # start: dim white
+        pb.on_tap()  # bright white, then paired: yellow breathing
+        for reply in [{"state": "proposing", "busy": True, "change_round": 0},
+                      q("How about Tuesday at 6 PM? Want to change it?")]:
+            polls.append(reply)
+            pb.tick()
         assert said == [], "not said until the owner taps or presses"
-        pb.announce(again=True)  # a tap
+        press()  # a new time: this press hears it (blue)
+        wait_for(lambda: said and not pb.now["speaking"])
         assert said == ["How about Tuesday at 6 PM? Want to change it?"], said
-        pb.now["rec"] = object()  # FSR held: yellow, and nothing else may show over it
-        pb.show(pb.YELLOW)
-        pb.breathe()
-        pb.show(pb.WHITE)
-        pb.now["rec"] = None
-        pb.show(pb.WHITE)
-        pb.now.update(answered=pb.now["pending"], pending=None, engaged=True)  # reply(): a change
-        pb.breathe()
-        run(leds, said, [
-            {"state": "pencilled_in", "change_round": 1, "questions": {}},  # backup: instant, still breathe
-            q("You said at night. How about Wednesday at 8 PM? Want to change it?", 1),  # inside TALK_MIN_S
-            {**q("You said at night. How about Wednesday at 8 PM? Want to change it?", 1), "sleep": 0.35},
-            q("You said at night. How about Wednesday at 8 PM? Want to change it?", 1),  # engaged: said now
-            {"state": "booked", "change_round": 1, "speak": {pb.DEVICE: "Plan booked with Frankie."}},
-        ], board)
-        pb.now["sid"] = None
+        pb.on_press()  # mic ON, at once
+        assert pb.now["rec"], "mic on from the first edge"
+        pb.on_release(); time.sleep(0.01); pb.on_press(); time.sleep(0.01); pb.on_release()  # bounce: ignored
+        time.sleep(0.4)
+        assert pb.now["rec"] and mics == ["MIC ON"], mics
+        press()  # mic OFF -> sent -> "Got it" (blue) -> agents decide again (yellow breathing)
+        assert not pb.now["rec"] and mics == ["MIC ON", "MIC OFF"], mics
+        wait_for(lambda: len(said) == 2 and not pb.now["speaking"])
+        for reply in [{"state": "pencilled_in", "change_round": 1, "questions": {}},  # backup: instant
+                      q("You said at night. How about Wednesday at 8 PM? Want to change it?", 1)]:
+            polls.append(reply)
+            pb.tick()
+        time.sleep(0.35)
+        polls.append(q("You said at night. How about Wednesday at 8 PM? Want to change it?", 1))
+        pb.tick()  # engaged: said as soon as it is ready
+        polls.append({"state": "booked", "change_round": 1, "speak": {pb.DEVICE: "Plan booked with Frankie."}})
+        pb.tick()
         pb.tick()  # still green
         time.sleep(0.35)
-        pb.tick()  # green is over: white
+        pb.tick()  # green is over: dim white
     finally:
-        pb.print = real_print
-    return leds, said
+        pb.print, pb.say = REAL_PRINT, REAL_SAY
+    return leds, mics, said
 
 
-leds, said = flow()
-want = ["white breathing", "white", "yellow", "white", "white breathing", "white", "green", "white"]
+want = ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)", "bright white",
+        "yellow (mic on)", "bright white", "blue (talking)", "yellow breathing", "bright white",
+        "blue (talking)", "bright white", "blue (talking)", "green", "dim white"]
+leds, mics, said = flow()
 assert leds == want, leds
-assert said[1:] == ["You said at night. How about Wednesday at 8 PM? Want to change it?",
+assert said[1:] == ["Got it, I'll look at night.", "You said at night. How about Wednesday at 8 PM? Want to change it?",
                     "Plan booked with Frankie."], said
 print("OK Pi LED flow:", " -> ".join(leds))
+print("OK mic toggle:", mics, "(the bounce inside the press made no extra toggle)")
 
 board = unoq_dot.FakeBoard()
-leds, _ = flow(board)
+leds, _, _ = flow(board)
 assert leds == want, leds
-assert [w for w in board.writes if w[0] == "breathe"] == [("breathe", 3000)] * 2, board.writes
-assert board.writes[-1] == (255, 255, 255) and (255, 255, 0) in board.writes and (0, 255, 0) in board.writes
-print("OK UNO Q LED flow: the sketch breathes on its own:", board.writes)
+assert [w for w in board.writes if w[0] == "breathe"] == [("breathe", 3000, 255, 255, 0)] * 2, board.writes
+assert board.writes[-1] == (31, 31, 31) and (255, 255, 0) in board.writes and (0, 0, 255) in board.writes
+assert (0, 255, 0) in board.writes and (255, 255, 255) in board.writes
+print("OK UNO Q LED flow: the sketch breathes yellow on its own:", board.writes)
 
 old = unoq_dot.FakeBoard()
 real = old.call
-old.call = lambda name, *a: (_ for _ in ()).throw(ValueError("no breathe")) if name == "breathe" else real(name, *a)
-leds, _ = flow(old)
+old.call = lambda name, *a: (_ for _ in ()).throw(ValueError("no breathe_rgb")) if name == "breathe_rgb" \
+    else real(name, *a)
+leds, _, _ = flow(old)
 assert leds == want, leds
-print(f"OK UNO Q old sketch (no breathe): Linux stepped set_led {len(old.writes)} times instead")
+print(f"OK UNO Q old sketch (no breathe_rgb): Linux stepped set_led {len(old.writes)} times instead")
+
+# ---- a press while the Dot talks cuts the voice and opens the mic; auto-stop ----------------
+leds, mics = [], []
+capture(leds, mics)
+reset(None)
+pb.mms.clear()  # espeak path, through the stub aplay that "plays" for 5 s
+os.environ["FAKE_PLAY_S"] = "5"
+sent = []
+pb.reply = lambda wav: sent.append(len(wav))
+try:
+    t = threading.Thread(target=pb.say, args=("A long line the owner talks over.",))
+    t.start()
+    wait_for(lambda: pb.now["player"] and pb.now["speaking"])
+    time.sleep(0.2)
+    t0 = time.monotonic()
+    pb.on_press()
+    t.join(1.0)
+    cut = time.monotonic() - t0
+    assert not t.is_alive() and cut < 0.5, "the voice stopped at once"
+    assert pb.now["rec"] and mics == ["MIC ON"], mics
+    pb.on_release()
+    press()  # a second hit inside REC_MIN_S (0.3 s) of mic ON is a double hit: still on
+    assert pb.now["rec"] and mics == ["MIC ON"], mics
+    time.sleep(0.3)
+    press()  # now it stops
+    wait_for(lambda: not pb.now["rec"])
+    pb.REC_MAX_S = 0.3
+    assert mics == ["MIC ON", "MIC OFF"], mics
+    pb.mic_on()  # nobody presses: it stops on its own
+    wait_for(lambda: not pb.now["rec"], 2)
+    assert mics[-1] == "MIC OFF" and len(mics) == 4, mics
+    wait_for(lambda: len(sent) == 2)
+finally:
+    pb.print = REAL_PRINT
+    os.environ["FAKE_PLAY_S"] = "0"
+print(f"OK interrupt: a press stopped the voice in {cut * 1000:.0f} ms and opened the mic; LEDs:", " -> ".join(leds),
+      "; double hit ignored; auto-stop works:", mics)
+
+# ---- MMS output: silence trimmed, long pauses shortened ---------------------------------------
+try:
+    import numpy as np
+except ImportError:
+    np = None
+if np is not None:
+    tone = lambda s: 0.5 * np.sin(np.arange(int(16000 * s)) / 3.0)  # noqa: E731
+    z = lambda s: np.zeros(int(16000 * s))  # noqa: E731
+    a = np.concatenate([z(0.5), tone(1.0), z(0.6), tone(1.0), z(0.4)])
+    out = pb.trim(a, np)
+    assert abs(len(out) / 16000 - (2.0 + 0.2 + 0.04)) < 0.03, len(out) / 16000
+    print(f"OK trim: 3.5 s with 0.5 s lead, 0.6 s pause, 0.4 s tail -> {len(out) / 16000:.2f} s")
 
 # ---- tap server: a poll while the agents hold the lock answers at once ----------
 sys.path.insert(0, str(ROOT / "server"))

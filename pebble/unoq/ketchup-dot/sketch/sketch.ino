@@ -7,11 +7,14 @@
 //
 // Bridge functions (Linux calls them with Bridge.call):
 //   set_led(r, g, b)  0..255 each, PWM (D3/D5/D6 are PWM pins). Solid colour; stops a breath.
-//   breathe(ms)       white breathing while the agents talk: one breath every ms (1 -> 0.1 -> 1,
-//                     a cosine, the same curve pi_pebble.breath_level uses), run here in loop()
-//                     so it stays smooth without Bridge traffic. Ends on the next set_led.
-// LED meaning (set by Linux): solid white = idle / a time is ready, white breathing = agents
-// talking, yellow = FSR held (owner talking), green = booked (60 s, then white).
+//   breathe_rgb(ms, r, g, b)  breathing in colour r,g,b (yellow while the agents decide): one
+//                     breath every ms (1 -> 0.1 -> 1, a cosine, the same curve pi_pebble.breath_level
+//                     uses), run here in loop() so it stays smooth without Bridge traffic. Ends on
+//                     the next set_led.
+//   breathe(ms)       the same in white (older Linux side).
+// LED meaning (set by Linux): dim white = at rest, bright white = tapped / a time is ready,
+// yellow breathing = agents deciding, blue = the Dot is talking, solid yellow = mic on,
+// green = booked (60 s, then dim white).
 //   get_inputs()      -> taps * 2 + pressed. taps = Hall taps counted since boot (debounced, never
 //                        missed between polls); pressed = 1 while the FSR is held (debounced)
 // Both use provide_safe: they run in loop() context, so analogWrite/digitalRead are safe there.
@@ -33,6 +36,7 @@ Debounced hall = {HALL, HALL_DEBOUNCE_MS, false, false, 0};
 Debounced fsr = {FSR, FSR_DEBOUNCE_MS, false, false, 0};
 volatile int taps = 0;
 unsigned long breath_ms = 0, breath_t0 = 0, breath_last = 0;  // 0 = not breathing
+int breath_r = 255, breath_g = 255, breath_b = 255;
 
 // true when the stable (debounced) state just became "active" (pin LOW)
 bool update(Debounced &d) {
@@ -60,10 +64,17 @@ void set_led(int r, int g, int b) {
   write_rgb(r, g, b);
 }
 
-void breathe(int ms) {
+void breathe_rgb(int ms, int r, int g, int b) {
+  breath_r = constrain(r, 0, 255);
+  breath_g = constrain(g, 0, 255);
+  breath_b = constrain(b, 0, 255);
   breath_ms = ms < 500 ? 500 : ms;
   breath_t0 = millis();
   breath_last = 0;
+}
+
+void breathe(int ms) {
+  breathe_rgb(ms, 255, 255, 255);
 }
 
 void breath_step() {  // ~50 steps a second
@@ -71,8 +82,8 @@ void breath_step() {  // ~50 steps a second
   if (!breath_ms || t - breath_last < 20) return;
   breath_last = t;
   float x = (float)((t - breath_t0) % breath_ms) / breath_ms;
-  int v = (int)(255 * (0.1f + 0.9f * (0.5f + 0.5f * cosf(2 * PI * x))));
-  write_rgb(v, v, v);
+  float v = 0.1f + 0.9f * (0.5f + 0.5f * cosf(2 * PI * x));
+  write_rgb((int)(breath_r * v), (int)(breath_g * v), (int)(breath_b * v));
 }
 
 int get_inputs() {
@@ -85,11 +96,12 @@ void setup() {
   pinMode(RED, OUTPUT);
   pinMode(GREEN, OUTPUT);
   pinMode(BLUE, OUTPUT);
-  set_led(0, 0, 0);  // dark until Linux says white (so a dark Dot = Linux side not running)
+  set_led(0, 0, 0);  // dark until Linux says dim white (so a dark Dot = Linux side not running)
   Bridge.begin();
   Bridge.provide_safe("set_led", set_led);
   Bridge.provide_safe("get_inputs", get_inputs);
   Bridge.provide_safe("breathe", breathe);
+  Bridge.provide_safe("breathe_rgb", breathe_rgb);
 }
 
 void loop() {

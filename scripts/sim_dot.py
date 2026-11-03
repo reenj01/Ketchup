@@ -2,17 +2,20 @@
 
     .venv/bin/python server/tap_server.py --dry-run &
     python scripts/sim_dots.py                      # both Dots at once (Mayo = Pi, Frankie = UNO Q)
-    python scripts/sim_dot.py --board pi --owner mayo --say "no, pick a time at night" --at <epoch>
+    python scripts/sim_dot.py --board pi --owner mayo --say "no, pick a time at night" --interrupt --at <epoch>
 
 --board pi:   pebble/pi_pebble.py with gpiozero mock pins (Hall 17, FSR 24, PWM LED).
 --board unoq: pebble/unoq/unoq_dot.py with FakeBoard standing in for sketch.ino
               (--router: through the real arduino-router-bridge client and a fake router socket).
-Stubs (no hardware): arecord "records" a 1 s silent WAV until stopped, espeak-ng/aplay only log,
-and Muse Voice Transcribe is replaced by the next --say line, so the Dot sends no audio anywhere.
-The flow it drives: tap at --at -> agents talk -> a time is ready -> a short FSR press hears it ->
-hold the FSR and say the next line (then "keep" for every later time) -> ... -> booked.
-Prints the LED states the Dot logged and checks they follow
-white -> white breathing -> yellow -> ... -> green -> white.
+Stubs (no hardware): arecord "records" a 1 s silent WAV until stopped, espeak-ng only logs, aplay
+"plays" for 0.6 s, and Muse Voice Transcribe is replaced by the next --say line, so the Dot sends
+no audio anywhere. The flow it drives: tap at --at -> agents decide -> a time is ready -> a press
+hears it (with --interrupt, a second press while it talks cuts it off and opens the mic) ->
+press once (mic ON, with a 10 ms bounce that must not toggle twice), say the next line (then
+"keep" for every later time), press again (mic OFF, sent) -> ... -> booked.
+Prints the LED states and MIC lines the Dot logged and checks they follow
+dim white -> bright white -> yellow breathing -> bright white -> blue -> yellow (mic on) -> ...
+-> green -> dim white, with one MIC ON and one MIC OFF per answer.
 """
 import argparse
 import io
@@ -28,7 +31,7 @@ STUB = {
     "arecord": '#!/bin/sh\nfor a; do out="$a"; done\ncp %s/silence.wav "$out"\n'
                'echo "arecord $*" >> %s/calls.log\ntrap "exit 0" TERM INT\nwhile :; do sleep 0.05; done\n',
     "espeak-ng": '#!/bin/sh\necho "espeak $*" >> %s/calls.log\n',
-    "aplay": '#!/bin/sh\ncat > /dev/null\necho "aplay $*" >> %s/calls.log\n',
+    "aplay": '#!/bin/sh\ncat > /dev/null\necho "aplay $*" >> %s/calls.log\nexec sleep 0.6\n',
 }
 
 
@@ -70,10 +73,10 @@ def fake_router(board, path):
 
 
 class Tee(io.TextIOBase):
-    """Keeps every 'LED ...' line the Dot prints, with a timestamp."""
+    """Keeps every 'LED ...' and 'MIC ...' line the Dot prints, with a timestamp."""
 
     def __init__(self, out, t0):
-        self.out, self.t0, self.buf, self.leds = out, t0, "", []
+        self.out, self.t0, self.buf, self.leds, self.mics = out, t0, "", [], []
 
     def write(self, s):
         self.buf += s
@@ -81,6 +84,8 @@ class Tee(io.TextIOBase):
             line, self.buf = self.buf.split("\n", 1)
             if line.startswith("LED "):
                 self.leds.append((round(time.monotonic() - self.t0, 1), line[4:]))
+            if line.startswith("MIC ON") or line.startswith("MIC OFF"):
+                self.mics.append(line.split(" -")[0].strip())
         return self.out.write(s)
 
     def flush(self):
@@ -97,7 +102,8 @@ def main():
     ap.add_argument("--at", type=float, default=0, help="epoch time to tap the magnet (both Dots within 2 s)")
     ap.add_argument("--green-s", default="6", help="how long green holds (Dot default 60)")
     ap.add_argument("--router", action="store_true", help="unoq: go through arduino-router-bridge + a fake router")
-    ap.add_argument("--old-sketch", action="store_true", help="unoq: sketch without breathe(), Linux steps set_led")
+    ap.add_argument("--old-sketch", action="store_true", help="unoq: sketch without breathe_rgb(), Linux steps set_led")
+    ap.add_argument("--interrupt", action="store_true", help="press while the Dot says the first time")
     args = ap.parse_args()
 
     stubs = Path(f"/tmp/ketchup_dot_stubs_{args.owner}")
@@ -130,7 +136,7 @@ def main():
         if args.old_sketch:
             real = board.call
             board.call = lambda name, *a: (_ for _ in ()).throw(ValueError("method not available")) \
-                if name == "breathe" else real(name, *a)
+                if name == "breathe_rgb" else real(name, *a)
         if args.router:
             sock = f"/tmp/ketchup_fake_router_{args.owner}.sock"
             fake_router(board, sock)
@@ -140,7 +146,7 @@ def main():
         time.sleep(1.0)
         tap, press, release = board.tap, board.press, board.release
 
-    heard = list(args.say)  # what the owner "says" on each hold, replaces the ASR call
+    heard = list(args.say)  # what the owner "says" each time the mic is on, replaces the ASR call
     pb.transcribe = lambda wav: (heard.pop(0) if heard else "keep")
 
     time.sleep(max(0.0, args.at - time.time()))
@@ -151,7 +157,14 @@ def main():
         time.sleep(0.1)
     if not pb.now["sid"]:
         raise SystemExit("never paired")
-    holds_ = 0
+    holds_, cut = 0, not args.interrupt
+
+    def click(bounce=False):
+        press()
+        if bounce:  # the FSR chatters 10 ms into the press: must not count as a second press
+            time.sleep(0.01); release(); time.sleep(0.01); press()
+        time.sleep(0.08); release(); time.sleep(0.1)
+
     deadline = time.monotonic() + 300
     while pb.now["sid"] and time.monotonic() < deadline:
         p = pb.now["pending"]
@@ -159,17 +172,28 @@ def main():
             time.sleep(0.2)
             continue
         if p != pb.now["heard"]:
-            print(f"\n== {args.owner}: short FSR press to hear the time", flush=True)
-            press(); time.sleep(0.15); release()
-        while pb.now["heard"] != p or pb.speaking.locked():
-            time.sleep(0.1)
-        time.sleep(args.wait)
-        if pb.now["pending"] != p or not pb.now["sid"]:
-            continue  # withdrawn (the other person asked for a change) or done
+            print(f"\n== {args.owner}: press to hear the time", flush=True)
+            click()
+        if not cut:  # talk over the Dot: the press stops the voice and opens the mic
+            while not pb.now["speaking"]:
+                time.sleep(0.02)
+            time.sleep(0.2)
+            print(f"\n== {args.owner}: presses while the Dot is talking", flush=True)
+            click(bounce=True)
+            cut = True
+        else:
+            while pb.now["heard"] != p or pb.speaking.locked():
+                time.sleep(0.1)
+            time.sleep(args.wait)
+            if pb.now["pending"] != p or not pb.now["sid"]:
+                continue  # withdrawn (the other person asked for a change) or done
+            print(f"\n== {args.owner}: presses once (mic ON)", flush=True)
+            click(bounce=True)
         line = heard[0] if heard else "keep"
-        print(f'\n== {args.owner}: holds the FSR and says "{line}"', flush=True)
-        press(); time.sleep(0.2); release(); time.sleep(0.1)  # a flicker inside the grace window
-        press(); time.sleep(1.0); release(); holds_ += 1
+        print(f'== {args.owner}: says "{line}", then presses again (mic OFF, send)', flush=True)
+        time.sleep(1.0)
+        click()
+        holds_ += 1
         while pb.now["pending"] == p and pb.now["sid"]:
             time.sleep(0.2)
     print(f"\n== {args.owner}: session over; waiting out green", flush=True)
@@ -187,12 +211,14 @@ def main():
     log = (stubs / "calls.log").read_text().splitlines()
     print("stub calls:", sum(x.startswith("arecord") for x in log), "arecord,",
           sum(x.startswith("espeak") for x in log), "espeak")
-    # this Dot's owner asked for a change: they held the FSR (yellow) before the agents talked again
-    change = ["yellow", "white"] if args.say else []
-    want = ["white", "white breathing", "white", *change, "white breathing", "white", "yellow", "white",
-            "green", "white"]
+    print("MIC lines:", ", ".join(tee.mics))
+    # this Dot's owner asked for a change: the agents decided again right after its mic went off
+    change = ["yellow breathing"] if args.say else []
+    want = ["dim white", "bright white", "yellow breathing", "bright white", "blue (talking)", "yellow (mic on)",
+            *change, "green", "dim white"]
     it = iter(seq)
-    ok = all(w in it for w in want) and "red" not in seq and holds_ >= 1 and not pb.now["rec"]
+    toggles = tee.mics == ["MIC ON", "MIC OFF"] * holds_  # one press = one toggle, bounce and all
+    ok = all(w in it for w in want) and "red" not in seq and holds_ >= 1 and not pb.now["rec"] and toggles
     print("ALL GOOD" if ok else "SOMETHING FAILED", flush=True)
     raise SystemExit(0 if ok else 1)
 

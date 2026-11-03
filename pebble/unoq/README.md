@@ -29,15 +29,19 @@ LED          ◄─ set_led()  ◄─Bridge──┘        │
 ## Lights (same as the Pi)
 
 - Dark: the Linux side isn't running yet. The sketch keeps the LED off until Linux sets it.
-- Solid white: idle, or a time is ready for you. Tap the Dot or give the pad a short press to hear it.
-- White breathing: the agents are talking (after the tap, and again after anyone asks for a change).
-  The sketch breathes the LED itself (`breathe` over Bridge); an older sketch without it still
-  breathes, with Linux stepping `set_led`.
-- Yellow: you are holding the pad and talking ("keep it", or "no, pick a time at night").
-- Green: booked on both calendars. Lasts about 60 s, then back to white.
+- Dim white: idle.
+- Bright white: tapped, or a time is ready for you. Tap the Dot or press the pad to hear it.
+- Yellow breathing in and out: the agents are deciding (after the tap, and again after anyone asks
+  for a change). The sketch breathes the LED itself (`breathe_rgb` over Bridge); an older sketch
+  without it still breathes, with Linux stepping `set_led`.
+- Blue: the Dot is talking.
+- Solid bright yellow: the mic is on ("keep it", or "no, pick a time at night").
+- Green: booked on both calendars. Lasts about 60 s, then back to dim white.
 - No red.
 
-The mic is live **only while the pad is held**. It is never always-listening.
+The pad is a toggle: press once to turn the mic on, press again to turn it off and send. It stops on
+its own after 20 s. A press while the Dot is talking cuts it off and turns the mic on. It is never
+always-listening.
 
 ## 1. Put the files on the board
 
@@ -109,11 +113,11 @@ These are UNO Q only:
 ## 5. Test it
 
 1. **Magnet**: touch the magnet to the Hall sensor, then to Mayo's Dot (or `curl` its `/tap`). The LED
-   breathes white while the agents pick a time, then goes solid white. Tap again or press the pad
-   briefly to hear the time.
-2. **Pad**: hold the FSR (yellow), say your answer, let go. The reply is spoken. A short flicker of the pad while
-   you hold it doesn't cut you off.
-3. A change makes both Dots breathe again until there's a new time. When both of you keep it, the LED goes green for about a minute, then white.
+   breathes yellow while the agents pick a time, then goes bright white. Tap again or press the pad
+   to hear the time (blue while it talks).
+2. **Pad**: press the FSR once (`MIC ON`, solid yellow), say your answer, press again (`MIC OFF`). The reply is
+   spoken. A bounce inside one press doesn't toggle twice.
+3. A change makes both Dots breathe again until there's a new time. When both of you keep it, the LED goes green for about a minute, then dim white.
 
 **Without the board** (on the Mac, server running with `--dry-run`):
 
@@ -121,7 +125,7 @@ These are UNO Q only:
 .venv/bin/python server/tap_server.py --dry-run &
 python scripts/sim_dots.py                # both Dots: tap → agents talk → a change → talk again → keep → green
 pip install arduino-router-bridge gpiozero && python scripts/sim_dots.py --router   # Frankie through the real Bridge client
-python scripts/sim_dots.py --router --old-sketch   # a sketch without breathe(): Linux steps set_led
+python scripts/sim_dots.py --router --old-sketch   # a sketch without breathe_rgb(): Linux steps set_led
 python pebble/unoq/unoq_dot.py --mock     # type t = tap, p = press, r = release, q = quit
 ```
 

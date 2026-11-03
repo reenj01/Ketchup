@@ -9,24 +9,32 @@
 | Hall sensor KY-003 (S) | 17 | low when a magnet is near |
 | USB sound card | `plughw:CARD=Device,DEV=0` | mic + speaker |
 
-LED: solid white = idle, or a time is ready for you; slow white breathing = the agents
-are talking (right after the tap, and again after anyone asks for a change); yellow =
-you are holding the pressure sensor and talking; green = booked on both calendars (60 s,
-then white). No red.
+LED: dim white = idle; bright white = tapped, or a time is ready for you; yellow
+breathing in and out = the agents are deciding (right after the tap, and again after anyone
+asks for a change); blue = the Dot is talking; solid bright yellow = the mic is on; green =
+booked on both calendars (60 s, then dim white). No red.
 
 There is no question up front: on the tap the agents pick a day and time from both
-calendars. When one is ready the LED stops breathing; tap the Dot or give the sensor a
-short press to hear it ("How about Tuesday at 6 PM? ... Want to change it?"). Then hold
-the sensor and answer: "keep it", or a change like "no, pick a time at night". A change
-sends both agents back to talking, and once you have answered, each new time is spoken
-as soon as it is ready. When both owners keep a time it is booked.
+calendars. When one is ready the LED stops breathing; tap the Dot or press the sensor
+to hear it ("How about Tuesday at 6 PM? ... Want to change it?"). Then answer: "keep it",
+or a change like "no, pick a time at night". A change sends both agents back to deciding,
+and once you have answered, each new time is spoken as soon as it is ready. When both
+owners keep a time it is booked.
 
-Hold the pressure sensor to talk. The mic records only while it is pressed. On
-release the clip goes to Muse Voice Transcribe, the text goes to your agent, and
-the reply is spoken by Meta MMS-TTS (`facebook/mms-tts-eng`, open weights,
-CC-BY-NC 4.0), which runs on the pebble. espeak (an OS voice, not a model) speaks
-until MMS has loaded, and is the fallback if it is not installed. The temp WAV is
-deleted as soon as it is read.
+The pressure sensor is a toggle: press once and the mic turns on (the terminal prints
+`MIC ON`), press again and it turns off and sends (`MIC OFF`). It stops on its own after
+20 s. A press while the Dot is talking cuts the voice off and turns the mic on. Presses
+are read on the edge with a 50 ms debounce, so one press is one toggle. The mic is
+never always-listening.
+
+The clip goes to Muse Voice Transcribe, the text goes to your agent, and the reply is
+spoken by Meta MMS-TTS (`facebook/mms-tts-eng`, open weights, CC-BY-NC 4.0), which runs
+on the pebble. It speaks sentence by sentence: the next sentence is made while the current
+one plays, the model's silence at the start and end of each sentence is cut, and there is
+a 150 ms pause between sentences. One `aplay` plays the whole reply. espeak (an OS voice,
+not a model) speaks until MMS has loaded, and is the fallback if it is not installed. The
+temp WAV is deleted as soon as it is read. The terminal prints `TIME first voice ... s
+after the text` for each reply.
 
 ## Run on the Pi
 
@@ -48,13 +56,18 @@ Optional: `PEBBLE_AUDIO` (ALSA device), `PEBBLE_PHRASE` (the plan, e.g. "let's
 catch up Thursday"), `PEBBLE_GREEN_S` (green hold, default 60), `PEBBLE_TTS=espeak`
 (skip MMS and use espeak only), `PEBBLE_BREATHE_S` (one breath, default 3),
 `PEBBLE_ANNOUNCE=auto` (speak every new time without waiting for a tap/press),
-`PEBBLE_TALK_MIN_S` (after a change, breathe at least this long, default 2.5).
+`PEBBLE_TALK_MIN_S` (after a change, breathe at least this long, default 2.5),
+`PEBBLE_DIM` (idle brightness, default 0.12), `PEBBLE_DEBOUNCE_MS` (press debounce, default
+50), `PEBBLE_REC_MAX_S` (mic auto-stop, default 20), `PEBBLE_GAP_MS` (pause between
+sentences, default 150).
 
 ## Try it without a Pi
 
 `scripts/sim_dot.py` runs this file with mock GPIO pins, stub `arecord`/`espeak`/`aplay`
 and a stub for speech recognition, against a local `tap_server.py --dry-run`.
 `scripts/sim_dots.py` runs both Dots at once (Mayo on this Pi code, Frankie on the UNO Q
-code): tap, the agents pick a time, Mayo says "no, pick a time at night", they pick again,
-both keep it. Each Dot checks its LED went white, white breathing, white, yellow, white
-breathing again, white, yellow, green, white. Needs `pip install gpiozero` for the Pi side.
+code): tap, the agents pick a time, Mayo presses while the Dot reads it out (the voice stops,
+the mic turns on), says "no, pick a time at night", presses again, they pick again, both keep it.
+Each press has a 10 ms bounce in it. Each Dot checks its LED went dim white, bright white,
+yellow breathing, bright white, blue, yellow (mic on), ..., green, dim white, and that every
+MIC ON has one MIC OFF. Needs `pip install gpiozero` for the Pi side.

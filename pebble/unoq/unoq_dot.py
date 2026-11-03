@@ -3,14 +3,14 @@
 The UNO Q has two halves. The microcontroller runs ketchup-dot/sketch/sketch.ino (LED, Hall
 sensor, FSR). This script runs on the board's Linux side and does everything else exactly the
 way the Pi does it, by importing pi_pebble.py and reusing its code: tap -> POST /tap, poll
-GET /sessions/<id>, LED colours, hold-to-talk with arecord (mic live only while the FSR is
-held), Muse Voice Transcribe, POST /sessions/<id>/answer, MMS-TTS voice with espeak-ng
-fallback, no added pauses. Only the pins are different: instead of gpiozero, the LED and the
+GET /sessions/<id>, LED colours (dim white, bright white, yellow breathing, blue, solid
+yellow, green), press-to-toggle mic with arecord, Muse Voice Transcribe, POST
+/sessions/<id>/answer, pipelined MMS-TTS voice with espeak-ng fallback. Only the pins are different: instead of gpiozero, the LED and the
 two inputs are reached over the Arduino Bridge (arduino-router, MessagePack-RPC):
 
     Bridge.call("set_led", r, g, b)   0..255 each (solid colour)
-    Bridge.call("breathe", ms)        white breathing while the agents talk, run on the MCU
-                                      (an older sketch without it: Linux steps set_led instead)
+    Bridge.call("breathe_rgb", ms, r, g, b)  yellow breathing while the agents decide, run on
+                                      the MCU (an older sketch without it: Linux steps set_led)
     Bridge.call("get_inputs")         -> taps * 2 + pressed   (polled every 25 ms)
 
 Same environment variables as the Pi: KETCHUP_SERVER, PEBBLE_ID (defaults to frankie here),
@@ -67,9 +67,9 @@ class FakeBoard:
             self.rgb = tuple(max(0, min(255, int(v))) for v in args)
             self.writes.append(self.rgb)
             return None
-        if name == "breathe":
+        if name == "breathe_rgb":
             self.rgb = "breathe"
-            self.writes.append(("breathe", int(args[0])))
+            self.writes.append(("breathe", int(args[0]), *(int(v) for v in args[1:4])))
             return None
         if name == "get_inputs":
             return self.taps * 2 + int(self.pressed)
@@ -100,12 +100,12 @@ class BridgeLED:
         self._value = tuple(rgb)
         self.board.call("set_led", *(round(v * 255) for v in rgb))
 
-    def breathe(self, period_s):
-        """pi_pebble.breathe() asks first: True = the sketch breathes on its own."""
+    def breathe(self, period_s, rgb=(1, 1, 0)):
+        """pi_pebble.refresh() asks first: True = the sketch breathes on its own."""
         if not self.can_breathe:
             return False
         try:
-            self.board.call("breathe", round(period_s * 1000))
+            self.board.call("breathe_rgb", round(period_s * 1000), *(round(v * 255) for v in rgb))
             self._value = None
             return True
         except Exception as e:  # sketch not re-flashed yet: pi_pebble steps set_led instead
@@ -124,7 +124,8 @@ class BridgeFSR:
 
 def poll(board, fsr):
     """Turn the sketch's counters into the same callbacks gpiozero fires on the Pi: Hall tap ->
-    on_tap in a thread, FSR down -> on_press, FSR up -> on_release (0.35 s grace in pi_pebble)."""
+    on_tap in a thread, FSR down -> on_press (toggles the mic, 50 ms debounce in pi_pebble),
+    FSR up -> on_release."""
     last_taps, errors = None, 0
     while True:
         try:
@@ -153,7 +154,7 @@ def main(board=None):
     pb.led, pb.fsr, pb.hall = BridgeLED(board), BridgeFSR(), None
     threading.Thread(target=poll, args=(board, pb.fsr), daemon=True).start()
     print(f"Ketchup Dot {pb.DEVICE} -> {pb.SERVER} (UNO Q, Bridge)", flush=True)
-    pb.show(pb.WHITE)
+    pb.refresh()  # dim white
     while True:
         try:
             pb.tick()

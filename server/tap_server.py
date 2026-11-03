@@ -24,6 +24,10 @@ Both pebbles are the same: mic + speaker. They:
    or 30 min before it starts). A timer checks deadlines every
    hold_sweep_s and at startup (state/holds.json, idempotent).
    POST /sessions/<id>/skip_to_end_of_day {} confirms that hold now (demo).
+5. Check-in: each Dot's service (deploy/dots/dot_heartbeat.py) POSTs /hello
+   {"device_id": ...} every few seconds while the Dot runs. The server prints
+   "DOT ONLINE ..." / "BOTH DOTS ONLINE" / "DOT OFFLINE ..." once per change.
+   GET /health -> {"ok": true, "dots": {device_id: seconds since last seen}}.
 
 States: paired -> proposing -> pencilled_in (-> proposing -> pencilled_in ...) ->
 booked | agreed (dry run, not booked) | failed.
@@ -49,6 +53,43 @@ lock = threading.Condition()
 pending = []   # open taps: {"device_id", "phrase", "at", "session_id"}
 sessions = {}  # session_id -> Session
 DRY_RUN = False
+OFFLINE_S = 15.0  # no check-in for this long = offline
+seen = {}         # device_id -> monotonic time of its last /hello or /tap
+online = set()    # device_ids announced online
+
+
+def check_in(device_id, now=None):
+    """Record a Dot's check-in; print a line when it comes online (and when both are)."""
+    now = time.monotonic() if now is None else now
+    with lock:
+        seen[device_id] = now
+        if device_id in online:
+            return
+        online.add(device_id)
+        both = set(DEVICES) <= online
+    name = DEVICES[device_id].capitalize()
+    print(f"DOT ONLINE  {device_id} ({name}'s Dot)", flush=True)
+    if both:
+        print("BOTH DOTS ONLINE: ready to film", flush=True)
+
+
+def sweep_offline(now=None):
+    """Print a line for each Dot that stopped checking in."""
+    now = time.monotonic() if now is None else now
+    with lock:
+        gone = [d for d in online if now - seen.get(d, 0) > OFFLINE_S]
+        online.difference_update(gone)
+    for d in gone:
+        print(f"DOT OFFLINE {d} (no check-in for {OFFLINE_S:.0f} s)", flush=True)
+    return gone
+
+
+def health(now=None):
+    now = time.monotonic() if now is None else now
+    with lock:
+        return {"ok": True, "dry_run": DRY_RUN,
+                "dots": {d: round(now - t, 1) for d, t in seen.items()},
+                "online": sorted(online), "both_online": set(DEVICES) <= online}
 
 
 def run_session(s):
@@ -127,7 +168,11 @@ class Handler(BaseHTTPRequestHandler):
         device = data.get("device_id")
         if device not in DEVICES:
             return self._send(400, {"error": f"unknown device_id, expected one of {list(DEVICES)}"})
+        if self.path == "/hello":
+            check_in(device)
+            return self._send(200, {"ok": True})
         if self.path == "/tap":
+            check_in(device)
             return self._send(200, tap(device, data.get("phrase")))
         if len(parts) == 3 and parts[0] == "sessions" and parts[2] == "answer":
             s = sessions.get(parts[1])
@@ -140,13 +185,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     def do_GET(self):
+        if self.path == "/health":
+            return self._send(200, health())
         if self.path.startswith("/sessions/"):
             s = sessions.get(self.path.removeprefix("/sessions/"))
             return self._send(200, snapshot(s)) if s else self._send(404, {"error": "no such session"})
         self._send(404, {"error": "not found"})
 
     def log_message(self, fmt, *args):
-        if "GET /sessions" not in (fmt % args):  # pebbles poll a lot
+        if not any(p in (fmt % args) for p in ("GET /sessions", "POST /hello", "GET /health")):  # polled a lot
             print(f"[{self.log_date_time_string()}] {fmt % args}", flush=True)
 
 
@@ -165,6 +212,11 @@ def main():
         return
     DRY_RUN = args.dry_run
     holds.start_timer(calendar, log=lambda m: print(m, flush=True))
+    def offline_timer():
+        while True:
+            time.sleep(5)
+            sweep_offline()
+    threading.Thread(target=offline_timer, daemon=True).start()
     print(f"Ketchup tap server on {args.host}:{args.port} (dry run: {DRY_RUN})", flush=True)
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 

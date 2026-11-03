@@ -1,0 +1,33 @@
+# Frankie's Dot (Arduino UNO Q): starts the ketchup-dot App (the sketch) and unoq_dot.py on
+# boot and keeps them running. Install: see deploy/dots/README.md. Logs: journalctl -u ketchup-dot -f
+[Unit]
+Description=Ketchup Dot (Frankie, Arduino UNO Q)
+Wants=network-online.target arduino-router.service
+After=network-online.target sound.target arduino-router.service
+# keep retrying forever (the Mac server may come up minutes later)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/ketchup
+# KETCHUP_SERVER, PEBBLE_ID, META_API_KEY, ... (chmod 600, never in this file)
+EnvironmentFile=/home/arduino/ketchup-dot.env
+Environment=PYTHONUNBUFFERED=1
+# Start the App (flashes/runs sketch.ino). Already running, or already started at boot by
+# "Run at startup" (arduino-app-cli properties set default), is fine: the error is ignored.
+ExecStartPre=-/bin/sh -c "arduino-app-cli app start /home/arduino/ArduinoApps/ketchup-dot || true"
+# Wait up to 90 s for the Bridge socket unoq_dot.py talks to.
+ExecStartPre=/usr/bin/timeout 90 /bin/sh -c "until [ -S /var/run/arduino-router.sock ]; do sleep 1; done"
+ExecStart=/home/arduino/dotvenv/bin/python /home/arduino/ketchup/deploy/dots/dot_heartbeat.py /home/arduino/dotvenv/bin/python /home/arduino/ketchup/pebble/unoq/unoq_dot.py
+Restart=always
+RestartSec=3
+# flashing the sketch on first start can take a while
+TimeoutStartSec=240
+KillSignal=SIGINT
+# SIGINT to dot_heartbeat.py only; it passes it to the Dot (LED off), SIGKILL after the timeout
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

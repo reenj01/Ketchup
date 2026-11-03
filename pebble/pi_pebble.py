@@ -3,22 +3,29 @@
 Touch two pebbles together (KY-003 Hall sensor) -> POST /tap; the server pairs
 two taps within 2 s and the agents pick a time from both calendars right away.
 Then poll GET /sessions/<id> and show it on the LED:
-  solid white     = idle, or a time is ready / waiting on the other person
-  white breathing = the agents are talking (picking or re-picking a time)
-  yellow          = the FSR is held: the mic is on, the owner is talking
-  green           = booked by both (held 60 s, then white)
+  dim white        = at rest (no session)
+  bright white     = tapped / paired, a time is ready, or waiting on the other person
+  yellow breathing = the agents are deciding (picking or re-picking a time)
+  blue             = the Dot (the AI agent) is talking
+  solid yellow     = the mic is on (recording)
+  green            = booked by both (held 60 s, then dim white)
 Announce: when a time is ready the Dot says it on the next tap (magnet) or FSR
 press. After the owner has answered once, new times are said as they arrive.
 PEBBLE_ANNOUNCE=auto says every time as it arrives.
 Voice: Meta's open-weights MMS-TTS (facebook/mms-tts-eng) runs on the pebble,
 loaded once in the background; espeak-ng (an OS voice, not a model) speaks until
 it's loaded, or if torch/transformers aren't installed. PEBBLE_TTS=espeak skips MMS.
-Hold-to-talk: while the pressure sensor (FSR) is pressed, arecord records; on
-release the WAV goes to Muse Voice Transcribe, the text to POST
-/sessions/<id>/answer, and the reply ("say") is spoken. The mic is live only
-while pressed; the temp WAV is deleted right after it is read.
+Sentences are made one after another in a thread while the one before plays, through one
+aplay per reply (opened while sentence 1 is made); MMS's leading/trailing silence is trimmed
+and sentences are 150 ms apart (PEBBLE_GAP_MS).
+Mic is a toggle: press the pressure sensor (FSR) once -> mic ON (arecord); press again ->
+mic OFF, the WAV goes to Muse Voice Transcribe, the text to POST /sessions/<id>/answer, and
+the reply ("say") is spoken. Auto-stops after 20 s (PEBBLE_REC_MAX_S). A press while the Dot
+is talking stops the voice and turns the mic on. The first edge of a press acts at once; edges
+within 50 ms of the last one are bounce (PEBBLE_DEBOUNCE_MS). The temp WAV is deleted right
+after it is read.
 
-A change ("no, pick a time at night") sends both agents back to talking, until both keep it.
+A change ("no, pick a time at night") sends both agents back to deciding, until both keep it.
 
 Pins (BCM): LED red 27, green 22, blue 23 (common cathode); FSR 24 (10K
 pulldown, pressed = high); Hall 17 (KY-003, low = magnet).
@@ -34,6 +41,7 @@ import math
 import os
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")  # torch hangs on the Pi with 4 threads; set before torch loads
+import queue
 import re
 import shutil
 import subprocess
@@ -51,67 +59,88 @@ DEVICE = OWNER if OWNER.startswith("pebble-") else f"pebble-{OWNER}"
 CARD = os.environ.get("PEBBLE_AUDIO", "plughw:CARD=Device,DEV=0")
 PHRASE = os.environ.get("PEBBLE_PHRASE")  # optional: the plan said out loud, e.g. "let's catch up Thursday"
 GREEN_S = float(os.environ.get("PEBBLE_GREEN_S", 60))
-BREATHE_S = float(os.environ.get("PEBBLE_BREATHE_S", 3.0))  # one slow white breath
+BREATHE_S = float(os.environ.get("PEBBLE_BREATHE_S", 3.0))  # one slow yellow breath
 ANNOUNCE = os.environ.get("PEBBLE_ANNOUNCE", "tap").lower()  # tap (say a new time on tap/press) | auto
 TALK_MIN_S = float(os.environ.get("PEBBLE_TALK_MIN_S", 2.5))  # after a change both Dots breathe at least this long
+DIM = float(os.environ.get("PEBBLE_DIM", 0.12))  # dim white at rest
+DEBOUNCE_S = float(os.environ.get("PEBBLE_DEBOUNCE_MS", 50)) / 1000  # FSR edges closer than this are bounce
+REC_MAX_S = float(os.environ.get("PEBBLE_REC_MAX_S", 20))  # the mic turns itself off after this
+REC_MIN_S = 0.3  # a second press this soon after mic ON is a double hit, not "stop"
+GAP_S = float(os.environ.get("PEBBLE_GAP_MS", 150)) / 1000  # silence between spoken sentences
 ASR_URL = "https://api.meta.ai/v1/asr/transcribe"
 TTS = os.environ.get("PEBBLE_TTS", "mms").lower()  # mms (falls back to espeak) | espeak
 MMS_ID = "facebook/mms-tts-eng"
 
-WHITE, YELLOW, GREEN, OFF = (1, 1, 1), (1, 1, 0), (0, 1, 0), (0, 0, 0)
-NAMES = {WHITE: "white", YELLOW: "yellow", GREEN: "green", OFF: "off"}
+WHITE, DIM_WHITE, YELLOW, BLUE, GREEN, OFF = (1, 1, 1), (DIM, DIM, DIM), (1, 1, 0), (0, 0, 1), (0, 1, 0), (0, 0, 0)
+BREATHE = "yellow breathing"  # the agents are deciding
+NAMES = {WHITE: "bright white", DIM_WHITE: "dim white", YELLOW: "yellow (mic on)", BLUE: "blue (talking)",
+         GREEN: "green", OFF: "off", BREATHE: BREATHE}
 DONE = ("booked", "agreed (dry run, not booked)")
 TALKING = ("paired", "proposing")  # the agents are picking a time
 
 led = fsr = hall = None
 now = {"sid": None, "heard": None, "answered": None, "pending": None, "engaged": False, "green_until": 0,
-       "rec": None, "wav": None, "busy": False, "led": None, "gen": 0, "round": 0, "talk_until": 0}
+       "rec": None, "wav": None, "busy": False, "led": None, "gen": 0, "round": 0, "talk_until": 0,
+       "mode": "ready", "speaking": False, "hush": None, "player": [], "edge": -1.0, "rec_t0": 0,
+       "booking": False}
 speaking = threading.Lock()
 led_lock = threading.Lock()
+mic_lock = threading.Lock()
 
 
 def breath_level(t):
-    """White brightness t seconds into a breath: 1 -> 0.1 -> 1, a smooth cosine (the sketch uses the same)."""
+    """Brightness t seconds into a breath: 1 -> 0.1 -> 1, a smooth cosine (the sketch uses the same)."""
     return 0.1 + 0.9 * (0.5 + 0.5 * math.cos(2 * math.pi * (t % BREATHE_S) / BREATHE_S))
 
 
-def show(color):
-    """A solid colour (ends a breath). While the FSR is held only yellow may show."""
-    if now["rec"] and color != YELLOW:
-        return
-    with led_lock:
-        now["gen"] += 1
-        if now["led"] != color:
-            print("LED", NAMES[color], flush=True)
-            now["led"] = color
-            led.value = color
-
-
-def breathe():
-    """White breathing while the agents talk. The UNO Q sketch breathes on its own (led.breathe);
-    on the Pi a thread steps the PWM."""
+def wanted():
+    """The one colour the LED should show now, most urgent first."""
     if now["rec"]:
-        return
+        return YELLOW
+    if now["speaking"] or now["booking"]:
+        return BLUE  # talking (or about to say it's booked)
+    if now["sid"]:
+        return BREATHE if now["mode"] == "talking" else WHITE
+    if now["busy"]:
+        return WHITE  # tapped, waiting for the other Dot
+    if time.monotonic() < now["green_until"]:
+        return GREEN
+    return DIM_WHITE
+
+
+def refresh():
+    """Show wanted() on the LED; logs 'LED <colour>' on every change."""
+    c = wanted()
     with led_lock:
-        if now["led"] == "breathe":
+        if now["led"] == c:
             return
         now["gen"] += 1
-        gen, now["led"] = now["gen"], "breathe"
-        print("LED white breathing", flush=True)
-        if getattr(led, "breathe", None) and led.breathe(BREATHE_S):
+        gen, now["led"] = now["gen"], c
+        print("LED", NAMES[c], flush=True)
+        if c != BREATHE:
+            led.value = c
             return
-    threading.Thread(target=_breath, args=(gen,), daemon=True).start()
+        # the UNO Q sketch breathes on its own (led.breathe); on the Pi a thread steps the PWM
+        if getattr(led, "breathe", None) and led.breathe(BREATHE_S, YELLOW):
+            return
+    threading.Thread(target=_breath, args=(gen, YELLOW), daemon=True).start()
 
 
-def _breath(gen):
+def _breath(gen, rgb):
     t0 = time.monotonic()
     while True:
         with led_lock:
             if now["gen"] != gen:
                 return
             v = breath_level(time.monotonic() - t0)
-            led.value = (v, v, v)
+            led.value = tuple(v * c for c in rgb)
         time.sleep(0.04)
+
+
+def set_mode(mode):
+    """talking (the agents are deciding) | ready (a time is ready, or waiting on the other person)."""
+    now["mode"] = mode
+    refresh()
 
 
 # ---- speech out: Meta MMS-TTS, espeak-ng fallback ------------------------------
@@ -165,7 +194,7 @@ def mms_text(text):
     t = re.sub(r"\b(" + "|".join(sorted(DAYS, key=len, reverse=True)) + r")\b\.?", lambda m: DAYS[m[1]], t)
     t = re.sub(r"\b(" + "|".join(sorted(MONTHS, key=len, reverse=True)) + r")\b\.?", lambda m: MONTHS[m[1]], t)
     t = re.sub(r"\b(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]\b\.?(?=\s*(\S?))",
-               lambda m: clock_words(m[1], m[2], m[3]) + ("." if m[0].endswith(".") and not m[4] else ""), t)
+               lambda m: clock_words(m[1], m[2], m[3]) + ("." if m[0].endswith(".") and not m[4].islower() else ""), t)
     t = re.sub(r"\b(\d{1,2}):(\d{2})\b", lambda m: clock_words(m[1], m[2]), t)
     t = re.sub(r"\b(" + MONTH_RE + r") (\d{1,2})(?:st|nd|rd|th)?\b", lambda m: f"{m[1]} {ordinal(int(m[2]))}", t)
     t = re.sub(r"\b(\d+)(?:st|nd|rd|th)\b", lambda m: ordinal(int(m[1])), t)
@@ -216,50 +245,155 @@ def load_mms():
         print(f"VOICE MMS-TTS unavailable ({type(e).__name__}: {e}); using espeak-ng", flush=True)
 
 
-def mms_pcm(text, gap=0.0):
-    """Text -> 16 kHz mono int16 PCM from MMS-TTS, one sentence at a time (no added
-    silence between), so playback can start after the first sentence instead of the whole reply."""
+def trim(a, np, floor=0.03, keep_s=0.02, pause_s=0.2):
+    """Cut MMS's leading and trailing near-silence (under 3% of the peak), keeping 20 ms, and
+    shorten any pause inside the sentence (e.g. at a comma) to at most pause_s."""
+    quiet = np.abs(a) <= floor * max(float(np.abs(a).max()), 1e-6)
+    loud = np.flatnonzero(~quiet)
+    if not len(loud):
+        return a[:0]
+    keep = int(16000 * keep_s)
+    a, quiet = a[max(0, loud[0] - keep):loud[-1] + keep], quiet[max(0, loud[0] - keep):loud[-1] + keep]
+    # quiet runs, in 10 ms frames
+    n = len(a) // 160
+    fq = quiet[:n * 160].reshape(n, 160).all(1)
+    out, i, cap = [], 0, int(pause_s * 100)
+    while i < n:
+        j = i
+        while j < n and fq[j]:
+            j += 1
+        if j - i > cap:  # a long pause: keep its first and last halves of pause_s
+            out.append((i * 160, (i + cap // 2) * 160))
+            out.append(((j - cap // 2) * 160, j * 160))
+        elif j > i:
+            out.append((i * 160, j * 160))
+        k = j
+        while k < n and not fq[k]:
+            k += 1
+        if k > j:
+            out.append((j * 160, k * 160))
+        i = k
+    out.append((n * 160, len(a)))
+    return np.concatenate([a[x:y] for x, y in out])
+
+
+def mms_pcm(text, gap=None):
+    """Text -> 16 kHz mono int16 PCM from MMS-TTS, one sentence at a time, silence trimmed,
+    `gap` seconds (GAP_S) of silence before every sentence after the first."""
     torch, np, m, tok = mms["torch"], mms["np"], mms["model"], mms["tok"]
+    gap = GAP_S if gap is None else gap
     first = True
     for c in chunks(mms_text(text)):
         if not re.search("[a-z]", c):
             continue
         torch.manual_seed(0)  # same line, same voice
         with torch.no_grad():
-            a = m(**tok(c, return_tensors="pt")).waveform[0].numpy()
+            a = trim(m(**tok(c, return_tensors="pt")).waveform[0].numpy(), np)
+        if not len(a):
+            continue
         a = (a / max(abs(a).max(), 1e-6) * 0.9 * 32767).astype(np.int16)
         yield (b"" if first else np.zeros(int(16000 * gap), np.int16).tobytes()) + a.tobytes()
         first = False
 
 
+def hush():
+    """Stop the voice now (a press while the Dot talks). True if it was talking."""
+    stop, was = now["hush"], now["speaking"]
+    if stop:
+        stop.set()
+    for p in list(now["player"]):
+        try:
+            p.kill()
+        except Exception:
+            pass
+    if was:
+        print("SAY stopped by a press", flush=True)
+    return was
+
+
+def _wait(procs, stop):
+    """Wait for playback to finish, or kill it as soon as `stop` is set."""
+    while any(p.poll() is None for p in procs):
+        if stop.wait(0.03):
+            for p in procs:
+                p.kill()
+            return
+
+
+def say_mms(text, stop, t_text):
+    """Pipelined: a thread makes sentence N+1 while sentence N plays. One aplay for the whole
+    reply, started right away so the sound card opens while sentence 1 is made. True if done."""
+    play = subprocess.Popen(["aplay", "-q", "-D", CARD, "-t", "raw", "-f", "S16_LE", "-r", "16000", "-c", "1"],
+                            stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    now["player"] = [play]
+    parts = queue.Queue()
+
+    def make():
+        try:
+            for pcm in mms_pcm(text):
+                if stop.is_set():
+                    break
+                parts.put(pcm)
+        except Exception as e:
+            parts.put(e)
+        parts.put(None)
+
+    threading.Thread(target=make, daemon=True).start()
+    first = True
+    try:
+        while (pcm := parts.get()) is not None:
+            if isinstance(pcm, Exception):
+                raise pcm
+            if stop.is_set():
+                break
+            if first:
+                print(f"TIME first voice {time.monotonic() - t_text:.2f} s after the text", flush=True)
+                first = False
+            play.stdin.write(pcm)  # blocks while it plays; the next sentence is being made meanwhile
+            play.stdin.flush()
+        play.stdin.close()
+        _wait([play], stop)
+        return True
+    except (BrokenPipeError, OSError, ValueError):
+        if stop.is_set():
+            return True
+        play.kill()
+        print("aplay stopped early - trying espeak-ng", flush=True)
+        return False
+    except Exception as e:
+        play.kill()
+        print("MMS-TTS error", e, "- using espeak-ng", flush=True)
+        return False
+
+
+def say_espeak(text, stop):
+    tts_bin = shutil.which("espeak-ng") or shutil.which("espeak")
+    if not tts_bin:
+        print("no espeak-ng or espeak; run: sudo apt install -y espeak-ng", flush=True)
+        return
+    tts = subprocess.Popen([tts_bin, "--stdout", text], stdout=subprocess.PIPE)
+    play = subprocess.Popen(["aplay", "-q", "-D", CARD], stdin=tts.stdout, stderr=subprocess.DEVNULL)
+    tts.stdout.close()
+    now["player"] = [tts, play]
+    _wait([tts, play], stop)
+
+
 def say(text):
     print(f'SAY "{text}"', flush=True)
+    t_text = time.monotonic()
     with speaking:
-        if mms:
-            t0, play = time.monotonic(), None
-            try:
-                for pcm in mms_pcm(text):  # play sentence 1 while sentence 2 is made
-                    if not play:
-                        print(f"TIME first voice {time.monotonic() - t0:.1f} s", flush=True)
-                        play = subprocess.Popen(["aplay", "-q", "-D", CARD, "-t", "raw", "-f", "S16_LE",
-                                                 "-r", "16000", "-c", "1"], stdin=subprocess.PIPE)
-                    play.stdin.write(pcm)
-                    play.stdin.flush()
-                if play:
-                    play.stdin.close()
-                    play.wait()
+        try:
+            if now["rec"]:  # the owner pressed to talk over it: don't talk into the mic
+                print("SAY skipped: the mic is on", flush=True)
                 return
-            except Exception as e:
-                if play:
-                    play.kill()
-                print("MMS-TTS error", e, "- using espeak-ng", flush=True)
-        tts_bin = shutil.which("espeak-ng") or shutil.which("espeak")
-        if not tts_bin:
-            print("no espeak-ng or espeak; run: sudo apt install -y espeak-ng", flush=True)
-            return
-        tts = subprocess.Popen([tts_bin, "--stdout", text], stdout=subprocess.PIPE)
-        subprocess.run(["aplay", "-q", "-D", CARD], stdin=tts.stdout)
-        tts.wait()
+            stop = now["hush"] = threading.Event()
+            now["speaking"] = True
+            refresh()  # blue
+            if not (mms and say_mms(text, stop, t_text)) and not stop.is_set():
+                say_espeak(text, stop)
+        finally:
+            now.update(speaking=False, hush=None, player=[])
+            refresh()
 
 
 def call(path, body=None):
@@ -292,16 +426,18 @@ def on_tap():
     if now["sid"]:  # in a session: a tap says the time on the table (again)
         return announce(again=True)
     now["busy"] = True
+    refresh()  # bright white: tapped
     print("TAP -> /tap", flush=True)
-    r = call("/tap", {"device_id": DEVICE, **({"phrase": PHRASE} if PHRASE else {})})
+    try:
+        r = call("/tap", {"device_id": DEVICE, **({"phrase": PHRASE} if PHRASE else {})})
+    except Exception as e:
+        r = {"error": str(e)}
     print("TAP", r, flush=True)
     if r.get("status") == "paired":  # the agents start picking a time right away
         now.update(sid=r["session_id"], heard=None, answered=None, pending=None, engaged=False, green_until=0,
-                   round=0, talk_until=0)
-        breathe()
-    else:
-        show(WHITE)
+                   round=0, talk_until=0, mode="talking")
     now["busy"] = False
+    refresh()  # yellow breathing (paired) or dim white (no partner)
 
 
 def announce(again=False):
@@ -314,51 +450,71 @@ def announce(again=False):
     return True
 
 
-# ---- FSR: hold to talk ---------------------------------------------------------
-RELEASE_GRACE_S = 0.35  # the FSR flickers off mid-squeeze; only stop after 0.35 s fully released
-
-
+# ---- FSR: press to toggle the mic -----------------------------------------------
 def on_press():
-    if now.get("stop"):  # pressed again inside the grace window: keep the same recording going
-        now["stop"].cancel()
-        now["stop"] = None
-    if now["rec"]:
-        return
-    if now["pending"] and now["pending"] != now["heard"]:  # a new time: this press hears it first
-        threading.Thread(target=announce, daemon=True).start()
-        return
-    fd, now["wav"] = tempfile.mkstemp(suffix=".wav")
-    os.close(fd)
-    print("MIC on", flush=True)
-    now["rec"] = subprocess.Popen(["arecord", "-q", "-D", CARD, "-f", "S16_LE", "-r", "16000", "-c", "1",
-                                   "-t", "wav", now["wav"]])
-    show(YELLOW)  # the owner is talking
+    """FSR went down. The first edge acts at once; any edge within DEBOUNCE_S of the last
+    one (down or up) is bounce, so one press is one toggle."""
+    t = time.monotonic()
+    quiet = t - now["edge"] >= DEBOUNCE_S
+    now["edge"] = t
+    if quiet:
+        toggle()
 
 
 def on_release():
+    now["edge"] = time.monotonic()  # releasing does nothing; it only arms the debounce
+
+
+def toggle():
     if now["rec"]:
-        now["stop"] = threading.Timer(RELEASE_GRACE_S, stop_recording)
-        now["stop"].start()
-
-
-def stop_recording():
-    now["stop"] = None
-    rec, path = now["rec"], now["wav"]
-    if not rec or fsr.is_pressed:
+        if time.monotonic() - now["rec_t0"] >= REC_MIN_S:
+            mic_off()
         return
-    rec.terminate()  # arecord closes the WAV cleanly on SIGTERM
-    rec.wait()
-    now["rec"] = None
-    print("MIC off", flush=True)
-    show(WHITE)  # tick() takes over: breathing again if the agents go back to talking
-    with open(path, "rb") as f:
-        wav = f.read()
-    os.remove(path)  # no audio kept on the pebble
+    if now["pending"] and now["pending"] != now["heard"] and not now["speaking"]:
+        threading.Thread(target=announce, daemon=True).start()  # a new time: this press hears it
+        return
+    mic_on()  # a press while the Dot talks opens the mic (yellow at once) and cuts the voice off
+    hush()
+
+
+def mic_on():
+    with mic_lock:
+        if now["rec"]:
+            return
+        fd, now["wav"] = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        now["rec_t0"] = time.monotonic()
+        now["rec"] = rec = subprocess.Popen(["arecord", "-q", "-D", CARD, "-f", "S16_LE", "-r", "16000", "-c", "1",
+                                             "-t", "wav", now["wav"]])
+        print(f"MIC ON  - talk now; press again to send (auto-stop {REC_MAX_S:.0f} s)", flush=True)
+    refresh()  # solid yellow
+    t = threading.Timer(REC_MAX_S, lambda: now["rec"] is rec and mic_off(auto=True))
+    t.daemon = True
+    t.start()
+
+
+def mic_off(auto=False):
+    with mic_lock:
+        rec, path = now["rec"], now["wav"]
+        if not rec:
+            return
+        rec.terminate()  # arecord closes the WAV cleanly on SIGTERM
+        rec.wait()
+        secs = time.monotonic() - now["rec_t0"]
+        now["rec"] = None
+    print(f"MIC OFF - {secs:.1f} s{' (auto-stop)' if auto else ''}, sending", flush=True)
+    refresh()
+    try:
+        with open(path, "rb") as f:
+            wav = f.read()
+    finally:
+        os.remove(path)  # no audio kept on the pebble
     threading.Thread(target=reply, args=(wav,), daemon=True).start()
 
 
 def reply(wav):
     if len(wav) < 16000:  # under ~0.5 s: a bump, not speech
+        print("MIC clip too short, nothing sent", flush=True)
         return
     t0 = time.monotonic()
     try:
@@ -380,53 +536,57 @@ def reply(wav):
     if r.get("ok"):  # answered: from now on new times are said as they arrive
         now.update(answered=now["pending"], pending=None, engaged=True)
         if r.get("mapped_to") == "change":
-            breathe()  # both agents go back to talking
+            now["mode"] = "talking"  # both agents go back to deciding (breathing once the reply is said)
     say(line)
 
 
 # ---- poll the session and show it on the LED ----------------------------------
 def tick():
     if not now["sid"]:
-        if not now["busy"]:
-            show(GREEN if time.monotonic() < now["green_until"] else WHITE)
+        refresh()  # dim white, or green until it runs out
         return
     s = call(f"/sessions/{now['sid']}")
     st = s.get("state")
     q = s.get("questions", {}).get(DEVICE)
     q = q and (s["change_round"], q["say"])
     if st not in DONE and s.get("change_round", 0) > now["round"]:
-        # someone asked for a change: the agents are talking again, on both Dots, even when the
+        # someone asked for a change: the agents are deciding again, on both Dots, even when the
         # backup time makes it instant (the other Dot may never see "proposing" between polls)
         now.update(round=s["change_round"], talk_until=time.monotonic() + TALK_MIN_S, pending=None)
     talking = time.monotonic() < now["talk_until"]
     if st in DONE:
-        show(GREEN)
+        line = s.get("speak", {}).get(DEVICE)
+        # blue while it says so (also while it waits for a line still playing), then the full green minute
+        now.update(sid=None, pending=None, mode="ready", booking=bool(line))
+        if line:
+            refresh()
+            say(line)
+        now.update(green_until=time.monotonic() + GREEN_S, booking=False)
         print("LED green for", GREEN_S, "s", flush=True)
-        now.update(sid=None, pending=None, green_until=time.monotonic() + GREEN_S)
-        if s.get("speak", {}).get(DEVICE):
-            say(s["speak"][DEVICE])
+        refresh()
     elif st == "failed" or "error" in s:
         print("session ended:", st or s["error"], flush=True)
-        now.update(sid=None, pending=None)
-        show(WHITE)
+        now.update(sid=None, pending=None, mode="ready")
+        refresh()
     elif s.get("busy"):  # the agents hold the session: only the state is known
         if st in TALKING or talking:
-            breathe()
+            set_mode("talking")
     elif talking:
-        breathe()
+        set_mode("talking")
     elif q and q != now["answered"]:  # a time is ready for this owner
         if q != now["pending"]:
-            print("READY", q[1], flush=True)
+            print("READY (tap or press to hear it):" if not (ANNOUNCE == "auto" or now["engaged"]) else "READY",
+                  q[1], flush=True)
         now["pending"] = q
-        show(WHITE)
+        set_mode("ready")
         if ANNOUNCE == "auto" or now["engaged"]:  # never over the mic; else it waits for a tap/press
             announce()
     elif st in TALKING:
         now["pending"] = None
-        breathe()
+        set_mode("talking")
     else:  # kept it, waiting on the other person
         now["pending"] = None
-        show(WHITE)
+        set_mode("ready")
 
 
 def main():
@@ -435,12 +595,14 @@ def main():
     if TTS == "mms":
         threading.Thread(target=load_mms, daemon=True).start()  # espeak-ng speaks until it's loaded
     led = RGBLED(red=27, green=22, blue=23)  # common cathode: high = on
-    fsr = Button(24, pull_up=None, active_state=True, bounce_time=0.02)  # 10K pulldown, press = high
+    # no gpiozero bounce_time: its debounce waits for the level to settle, which an FSR near the
+    # threshold drags out; on_press acts on the first edge and ignores the next 50 ms instead
+    fsr = Button(24, pull_up=None, active_state=True, bounce_time=None)  # 10K pulldown, press = high
     hall = Button(17, pull_up=True, bounce_time=0.05)  # KY-003 pulls low with a magnet
     hall.when_pressed = lambda: threading.Thread(target=on_tap, daemon=True).start()
     fsr.when_pressed, fsr.when_released = on_press, on_release
     print(f"Ketchup Dot {DEVICE} -> {SERVER}", flush=True)
-    show(WHITE)
+    refresh()
     while True:
         try:
             tick()
