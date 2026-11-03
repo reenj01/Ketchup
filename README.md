@@ -36,28 +36,35 @@ log in or connect any account. The organizers allow mock data.
         └──> tentative event on both calendars <──┘
 ```
 
-1. **Tap.** After someone says a plan ("let's catch up Thursday"), both Dots are
-   tapped together. A magnet and Hall sensor detect the tap, and the server pairs two
-   taps that arrive within 2 s.
-2. **Ask.** Each Dot asks its person two questions: what time of day (morning, noon,
-   night) and how long to meet.
-3. **Negotiate.** Each person has their own agent. It sees its person's answers and
-   calendar, plus only the other person's free windows (never event titles). The agents
-   propose, accept or counter in strict JSON. Habits are inferred from each calendar,
-   never typed in, and what a person says always beats their habits.
-4. **Hard rules in code, not just in the prompt.** At least 30 minutes free around every
+1. **Tap.** After someone says a plan ("let's catch up sometime next week"), both Dots
+   are tapped together. A magnet and Hall sensor detect the tap, and the server pairs two
+   taps that arrive within 2 s. The LEDs start breathing white.
+2. **Negotiate first.** Each person has their own agent. Right after the tap, with no
+   questions up front, the two agents pick a day and time. Each agent sees its own
+   person's calendar, plus only the other person's free windows (never event titles).
+   The agents propose, accept or counter in strict JSON. Habits are inferred from each
+   calendar, never typed in.
+3. **Hard rules in code, not just in the prompt.** At least 30 minutes free around every
    other event, a time already offered is never offered again, lengths are multiples
    of 5 minutes (30 and 45 meet at 35).
-5. **Tentative hold.** A tentative event goes on both calendars with an agreed backup
-   time. It auto-confirms at 10 PM ET (11:59 PM if made at or after 10 PM), or 30 minutes
-   before the meeting if that's sooner.
-6. **Change.** A reply like "not Thursday, something later" becomes hard constraints
-   that add up across rounds. The hold moves to the backup if it fits, otherwise the
-   agents renegotiate, widening the search up to 8 weeks. The other person only hears
-   "Mayo would prefer a different day or time."
+4. **Hear it.** When a time is ready the LED goes solid white. Tap the Dot or give the
+   pressure sensor a short press and it says the time out loud.
+5. **Change by voice.** Hold the pressure sensor (the LED turns yellow) and say what you
+   want, like "no, pick a time at night". It becomes a hard constraint, and constraints
+   add up across rounds. Both Dots breathe white again while the agents find a new time
+   (the agreed backup if it fits, otherwise a new search up to 8 weeks out). This repeats
+   until you like it. The other person only hears "Mayo would prefer a different day or
+   time", never your words or reason.
+6. **Booked.** When both people say "keep it", the event goes on both calendars and the
+   LEDs turn green for 1 minute, then back to white. A held time also auto-confirms at
+   10 PM ET (11:59 PM if made at or after 10 PM), or 30 minutes before the meeting if
+   that's sooner.
 
-The web page shows the whole flow on one screen: Mayo's chat, the two agents
-negotiating, and Frankie's chat. The **Ketchup** button stands in for the tap.
+The live web simulator shows the same agents on one screen: both Dots, the agents'
+conversation as a chat, each person's sample calendar (See calendar), and a list of every
+Meta model call. Dragging the Dots together (or the Pair button) stands in for the tap.
+In the simulator each Dot also asks its person one quick question (what time of day)
+before the agents negotiate, since judges can't hold a real Dot.
 
 ## Meta AI used
 
