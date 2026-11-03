@@ -63,8 +63,6 @@ log in or connect any account. The organizers allow mock data.
 The live web simulator shows the same agents on one screen: both Dots, the agents'
 conversation as a chat, each person's sample calendar (See calendar), and a list of every
 Meta model call. Dragging the Dots together (or the Pair button) stands in for the tap.
-In the simulator each Dot also asks its person one quick question (what time of day)
-before the agents negotiate, since judges can't hold a real Dot.
 
 ## Meta AI used
 

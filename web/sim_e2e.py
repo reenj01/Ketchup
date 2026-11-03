@@ -1,10 +1,13 @@
 """End-to-end check of a running simulator over HTTP (real models, mock calendars).
 
-  python web/sim_e2e.py http://localhost:8000 morning.wav
+  python web/sim_e2e.py http://localhost:8000 [/tmp/morning.wav]
 
-Pairs, answers Mayo by voice (the WAV goes through Muse Voice Transcribe) and
-Frankie by typing, waits for the agents, keeps it on both pebbles, and prints
-every state and model call with timings. Also fetches one MMS-TTS line.
+The same flow as the physical Dots: pair, and the agents pencil in a time with
+no question first. Mayo asks for a change: by voice when a WAV is given (it
+goes through Muse Voice Transcribe), else typed "no, pick a time at night".
+Frankie's Dot must only hear that Mayo wants a different time, never her words.
+The agents renegotiate, both keep the new time, and it is booked. Prints every
+state and model call with timings, and fetches MMS-TTS lines.
 """
 import json
 import sys
@@ -42,37 +45,59 @@ def wait(sid, until, limit=240):
 
 
 t_start = time.monotonic()
-code, r = call("/sim/api/tap", {"phrase": "let's catch up this week"})
+code, r = call("/sim/api/tap", {"phrase": "let's hang out next week"})
 assert code == 200, r
 sid = r["session_id"]
 print("paired, session", sid)
-v = wait(sid, lambda v: all(p["question"] for p in v["pebbles"].values()) or v["state"] == "failed")
-print("  questions:", {k: p["question"] for k, p in v["pebbles"].items()})
+states = []
+
+
+def pencilled(v):
+    states.append(v["state"])
+    return v["state"] == "failed" or (v["state"] == "pencilled_in" and all(p["question"] for p in v["pebbles"].values()))
+
+
+v = wait(sid, pencilled)
+assert v["state"] == "pencilled_in", v.get("error")
+assert "asking_time_of_day" not in states, "asked a question before proposing"
+assert all(p["kind"] == "confirm" for p in v["pebbles"].values()), "first thing asked must be the proposed time"
+first = (v.get("hold") or {}).get("slot")
+print("  proposed with no question first:", first)
+print("  Dots say:", {k: p["question"] for k, p in v["pebbles"].items()})
 
 code, audio = call("/sim/api/tts", {"session_id": sid, "text": v["pebbles"]["mayo"]["question"]})
 print(f"  TTS fetch: HTTP {code}, {len(audio) if isinstance(audio, bytes) else audio} bytes of WAV")
 
 if WAV:
     code, r = call(f"/sim/api/session/{sid}/voice?pebble=mayo", open(WAV, "rb").read(), "audio/wav")
-    print(f"  Mayo (voice): HTTP {code} heard={r.get('heard')!r} -> {r.get('mapped_to')}; says {r.get('say')!r}")
+    words = r.get("heard") or ""
+    print(f"  Mayo (voice): HTTP {code} heard={words!r} -> {r.get('mapped_to')}; says {r.get('say')!r}")
 else:
-    code, r = call(f"/sim/api/session/{sid}/say", {"pebble": "mayo", "text": "morning"})
-    print(f"  Mayo (typed): HTTP {code} -> {r.get('mapped_to')}; says {r.get('say')!r}")
-code, r = call(f"/sim/api/session/{sid}/say", {"pebble": "frankie", "text": "evening works best"})
-print(f"  Frankie (typed): HTTP {code} -> {r.get('mapped_to')}; says {r.get('say')!r}")
+    words = "no, pick a time at night"
+    code, r = call(f"/sim/api/session/{sid}/say", {"pebble": "mayo", "text": words})
+    print(f"  Mayo (typed): HTTP {code} {words!r} -> {r.get('mapped_to')}; says {r.get('say')!r}")
+assert code == 200 and r.get("ok"), r
+
+v = wait(sid, lambda v: v["state"] in ("failed", "booked") or (v["state"] == "pencilled_in" and v["change_round"] >= 1
+                                                                and all(p["question"] for p in v["pebbles"].values())))
+assert v["state"] == "pencilled_in", v.get("error")
+fq = v["pebbles"]["frankie"]["question"]
+said = words.lower().strip(" .!?")
+assert fq.startswith("Mayo wants a different time.") and said not in fq.lower(), fq
+print("  renegotiated:", (v.get("hold") or {}).get("slot"))
+print("  Dots say:", {k: p["question"] for k, p in v["pebbles"].items()})
+print("  Frankie hears only that Mayo wants a different time: ok")
+
+for k in ("mayo", "frankie"):
+    code, r = call(f"/sim/api/session/{sid}/say", {"pebble": k, "text": "keep it"})
+    print(f"  {k} keeps: HTTP {code} -> {r.get('mapped_to')}; says {r.get('say')!r}")
 t0 = time.monotonic()
 code, audio = call("/sim/api/tts", {"session_id": sid, "text": r.get("say", "")})
 print(f"  TTS fetch (new line): HTTP {code}, {len(audio) if isinstance(audio, bytes) else audio} bytes, "
       f"{time.monotonic() - t0:.2f} s round trip")
-
-v = wait(sid, lambda v: v["state"] in ("pencilled_in", "failed", "booked"))
-print("  pencilled in:", (v.get("hold") or {}).get("slot"))
-print("  questions:", {k: p["question"] for k, p in v["pebbles"].items()})
-for k in ("mayo", "frankie"):
-    code, r = call(f"/sim/api/session/{sid}/say", {"pebble": k, "text": "keep it"})
-    print(f"  {k} keeps: HTTP {code} -> {r.get('mapped_to')}")
 v = wait(sid, lambda v: v["state"] in ("booked", "failed"))
-print("final state:", v["state"], "|", (v.get("agreed_slot") or {}).get("slot"), "| LEDs green" if v["state"] == "booked" else "")
+assert v["state"] == "booked", v.get("error")
+print("final state:", v["state"], "|", (v.get("agreed_slot") or {}).get("slot"))
 _, v = call(f"/sim/api/session/{sid}")
 print("\nconversation:")
 for line in v["lines"]:

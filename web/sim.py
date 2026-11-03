@@ -1,5 +1,12 @@
 """Ketchup web simulator: two virtual pebbles (Mayo and Frankie) in a browser.
 
+Same flow as the physical Dots (flow.Session.negotiate_first): on pairing the
+agents pick a day and time from both mock calendars right away, with no
+question first. Each Dot then shows the time; its person keeps it or asks for a
+change (hold to talk, or type). A change sends both agents back to talking, in
+a loop, until both keep a time; then it is booked. The other Dot only hears
+that a different time was wanted, never the words.
+
 One process. The real brain (flow.Session: Muse Spark Open on Baseten, with
 Muse Spark 1.3 as the backup) runs against seeded mock calendars, never
 Google. The browser records hold-to-talk answers as 16 kHz mono WAV; this
@@ -12,8 +19,8 @@ is logged with its model name and time, per session.
 
 Env: BASETEN_API_KEY (brain), META_API_KEY (backup brain + speech to text),
 PORT, HOST (default 0.0.0.0), KETCHUP_TTS=off to skip loading MMS,
-KETCHUP_MAX_SESSIONS, KETCHUP_MAX_CALLS, KETCHUP_STARTS_PER_HOUR,
-KETCHUP_ANSWER_S. Keys stay on the server; the page never sees them.
+KETCHUP_MAX_SESSIONS, KETCHUP_MAX_CALLS, KETCHUP_STARTS_PER_HOUR.
+Keys stay on the server; the page never sees them.
 """
 import importlib.util
 import io
@@ -59,7 +66,6 @@ ENV = os.environ.get
 MAX_SESSIONS = int(ENV("KETCHUP_MAX_SESSIONS", 6))      # live at once
 MAX_CALLS = int(ENV("KETCHUP_MAX_CALLS", 40))           # model calls per session
 STARTS_PER_HOUR = int(ENV("KETCHUP_STARTS_PER_HOUR", 60))
-ANSWER_S = float(ENV("KETCHUP_ANSWER_S", 90))           # judges need time to find the mic
 AUDIO_MAX_S = 15
 MAX_ANSWERS = 16                                        # spoken + typed answers per session
 MAX_TTS = 40
@@ -90,7 +96,7 @@ def load_voice():
         voice.load_mms()
         if not voice.mms:
             raise RuntimeError("MMS-TTS did not load")
-        synth("Morning, noon, or night?")  # the first question: ready before anyone taps
+        synth("Plan booked with Frankie.")  # warm the model before anyone taps
         VOICE["state"] = "ready"
     except Exception as e:  # text only
         VOICE.update(state="off", error=f"{type(e).__name__}: {e}")
@@ -149,13 +155,7 @@ class Sim:
 
     def _run(self):
         timing.SID.set(self.id)
-        s = self.s
-        s.start()
-        if s.state == "asking_time_of_day":
-            s.deadline = time.monotonic() + ANSWER_S
-        while s.state == "asking_time_of_day":  # people who don't answer get their habit
-            time.sleep(max(0.0, s.deadline - time.monotonic()) + 0.1)
-            s.advance()
+        self.s.negotiate_first()  # like the Dots: the agents pick a time before anyone is asked
 
     def calls(self):
         return [c for c in timing.CALLS if c.get("sid") == self.id and c.get("kind") == "model"]
@@ -167,12 +167,15 @@ class Sim:
         s = self.s
         # The session lock is held while the agents negotiate (several seconds). Don't make
         # polls wait for it: reuse the last snapshot; s.lines (append-only) still streams.
-        if s.lock.acquire(blocking=False):
+        busy = not s.lock.acquire(blocking=False)
+        if not busy:
             try:
                 self._p = s.public()
             finally:
                 s.lock.release()
         p = self._p or {"questions": {}, "speak": {}}
+        if busy and p.get("state") != s.state:  # the agents went back to talking: nothing to answer yet
+            p = {**p, "state": s.state, "questions": {}, "speak": {}}
         pebbles = {}
         for key, dev in DEV.items():
             q = p["questions"].get(dev)
@@ -184,16 +187,13 @@ class Sim:
             pebbles[key] = {"name": PEOPLE[key]["name"], "question": q and q["say"],
                             "kind": q and q["kind"], "speak": speak, "heard": self.heard[key],
                             "replies": self.replies[key]}
-        left = None
-        if p.get("state") == "asking_time_of_day" and s.deadline:
-            left = max(0, round(s.deadline - time.monotonic()))
         calls = [{"model": c.get("model") or "?", "ok": c.get("ok", True), "seconds": round(c.get("seconds", 0), 2),
                   "what": what_it_did(c), "cached": c.get("cached", False),
                   "at": datetime.fromtimestamp(c["t"], TZ).strftime("%H:%M:%S")} for c in self.calls()]
         hold = p.get("hold") and {**p["hold"], "start": (s.hold or {}).get("start"),
                                   "minutes": (s.hold or {}).get("minutes"), "title": (s.hold or {}).get("title")}
         return {"session_id": self.id, "state": p.get("state", s.state), "phrase": s.phrase, "pebbles": pebbles,
-                "seconds_left": left, "hold": hold, "agreed_slot": p.get("agreed_slot"),
+                "change_round": s.change_round, "hold": hold, "agreed_slot": p.get("agreed_slot"),
                 "nudge": p.get("nudge"), "error": p.get("error"),
                 "lines": [l.replace("Google status", "mock calendar status").removesuffix(" None")
                           for l in s.lines[since:]],

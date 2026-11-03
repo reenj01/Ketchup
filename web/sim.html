@@ -14,7 +14,7 @@
 :root{
   --ink:#1d1b22; --soft:#6d6a75; --faint:#b0adb6; --line:#1d1b22; --hair:#ebe8ef; --bg:#fff;
   --orange:#ff6a2b; --pink:#ffb3cf; --peri:#8f8cf5; --peri-ink:#3d39b8; --yellow:#ffdd4a; --green:#7fd49b; --green-ink:#1f6b3a;
-  --led-yellow:247,201,72; --led-red:233,84,72; --led-green:110,190,130;
+  --led-yellow:247,201,72; --led-white:196,194,214; --led-blue:84,140,240; --led-green:110,190,130;
   --serif:"Instrument Serif",Georgia,serif; --mono:"Space Mono",ui-monospace,monospace; --display:"Bricolage Grotesque","DM Sans",sans-serif;
 }
 *{box-sizing:border-box}
@@ -62,20 +62,26 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
   transition:box-shadow .6s ease, transform .45s cubic-bezier(.2,.8,.2,1)}
 .pebble::after{content:"";position:absolute;inset:-16px;border-radius:50%;opacity:0;transition:opacity .6s ease, background .6s ease}
 .pebble.led-yellow::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-yellow),.45) 52%,rgba(var(--led-yellow),0) 72%)}
-.pebble.led-red::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-red),.36) 52%,rgba(var(--led-red),0) 72%);animation:breathe 2.6s ease-in-out infinite}
+/* the Dot's LED, as on the hardware: dim white = at rest, bright white = tap/pair, yellow breathing = the agents
+   are deciding, blue = an agent is talking, solid bright yellow = the mic is recording, green = booked (then dim white) */
+.pebble.led-bright::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-white),.6) 52%,rgba(var(--led-white),0) 72%)}
+.pebble.led-breathe::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-yellow),.45) 52%,rgba(var(--led-yellow),0) 72%);animation:breathe 3s ease-in-out infinite}
+.pebble.led-blue::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-blue),.4) 52%,rgba(var(--led-blue),0) 72%)}
+.pebble.led-yellow::after{background:radial-gradient(circle,rgba(var(--led-yellow),.6) 52%,rgba(var(--led-yellow),0) 72%)}
 .pebble.led-green::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-green),.45) 52%,rgba(var(--led-green),0) 72%)}
-.pebble.fade::after{opacity:1;background:radial-gradient(circle,rgba(var(--led-yellow),.45) 52%,rgba(var(--led-yellow),0) 72%);animation:fadein 1.6s ease}
 .pebble::before{content:"";position:absolute;inset:0;border-radius:50%;z-index:1;background:inherit}
-.pebble .dot{position:absolute;z-index:2;left:50%;top:50%;width:10px;height:10px;margin:-5px;border-radius:50%;background:#e0ddd6;transition:background .6s}
-.pebble.led-yellow .dot,.pebble.fade .dot{background:rgb(var(--led-yellow))}
-.pebble.led-red .dot{background:rgb(var(--led-red))}
-.pebble.led-green .dot{background:rgb(var(--led-green))}
+.pebble .dot{position:absolute;z-index:2;left:50%;top:50%;width:10px;height:10px;margin:-5px;border-radius:50%;background:#f1f0f3;box-shadow:0 0 0 1.5px #dcd9e0;transition:background .6s,box-shadow .6s}
+.pebble.led-bright .dot{background:#fff;box-shadow:0 0 0 1.5px #cfccd6,0 0 9px 3px rgba(var(--led-white),.9)}
+.pebble.led-breathe .dot{background:rgb(var(--led-yellow));animation:dotbreathe 3s ease-in-out infinite}
+.pebble.led-blue .dot{background:rgb(var(--led-blue));box-shadow:0 0 6px 2px rgba(var(--led-blue),.6)}
+.pebble.led-yellow .dot{background:rgb(var(--led-yellow));box-shadow:0 0 8px 3px rgba(var(--led-yellow),.8)}
+.pebble.led-green .dot{background:rgb(var(--led-green));box-shadow:0 0 6px 2px rgba(var(--led-green),.6)}
 .pebble.speaking{transform:scale(1.05)}
 .pebble.rec{transform:scale(.97)}
 .pebble.dragging{cursor:grabbing;transition:box-shadow .6s ease}
 .pebble.dragging,.pebble.flying{z-index:30}
-@keyframes breathe{50%{opacity:.55}}
-@keyframes fadein{from{opacity:0}}
+@keyframes breathe{50%{opacity:.1}}
+@keyframes dotbreathe{50%{opacity:.25}}
 .name{margin-top:18px;font-family:var(--serif);font-size:28px;line-height:1}
 .tag{display:inline-block;margin-top:9px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:4px 10px;border-radius:999px;border:1.5px solid var(--hair);color:var(--soft)}
 .tag.agents{background:var(--peri);border-color:var(--peri);color:#fff}
@@ -392,7 +398,7 @@ const DONE = ["booked", "agreed (dry run, not booked)"];
 let calSeen = false, nudgeLast = null;  // calSeen: a calendar was opened after a time was pencilled in, so stop the "See calendar" nudge
 let sid = null, view = null, lineCount = 0, polling = null, busy = {mayo: false, frankie: false};
 let errs = {mayo: "", frankie: "", global: ""}, health = {};
-let fadeUntil = {mayo: 0, frankie: 0}, lastState = null, typeOpen = {mayo: false, frankie: false}, weekData = null;
+let bookedAt = 0, flashUntil = 0, lastState = null, typeOpen = {mayo: false, frankie: false}, weekData = null;
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const other = k => k === "mayo" ? "frankie" : "mayo";
 const isOver = () => !view || DONE.includes(view.state) || view.state === "failed";
@@ -421,6 +427,7 @@ function endDrag() { if (drag) drag.el.classList.remove("dragging"); drag = null
 function pair() {
   if (sid && !isOver()) return;
   unlockAudio();
+  flashUntil = Date.now() + 520 + FLASH_MS; setTimeout(render, 520 + FLASH_MS + 20); render();
   const a = $("#peb-mayo").getBoundingClientRect(), b = $("#peb-frankie").getBoundingClientRect();
   const half = (b.x - a.x) / 2 - a.width * 0.45;
   KEYS.forEach(k => $("#peb-" + k).classList.add("flying"));
@@ -457,7 +464,10 @@ async function poll() {
   const fresh = (r.body.lines || []).slice(lineCount - since);  // skip lines another poll already added
   view = r.body; lineCount = view.line_count;
   addNotes(fresh);
-  if (view.state !== lastState) { lastState = view.state; loadWeek(); }
+  if (view.state !== lastState) {
+    if (DONE.includes(view.state)) bookedAt = Date.now(), setTimeout(render, GREEN_MS + 50);
+    lastState = view.state; loadWeek();
+  }
   if (isOver()) { clearInterval(polling); setTimeout(loadWeek, 300); }
   render();
 }
@@ -468,12 +478,11 @@ function note(l) {
   const t = l.trim(); let m;
   if ((m = t.match(/^Heard: "(.*)" \(said by (\w+)\)/))) return ["human", `${m[2]}: “${m[1]}”`];
   if ((m = t.match(/^Nudge: (.*)/))) return ["agent", m[1]];
-  if ((m = t.match(/^Both Dots say: "(.*)"/))) return ["agent", `Both Dots ask: “${m[1]}”`];
   if ((m = t.match(/^(\w+) said "(.*)" -> (.*)/))) return ["human", `${m[1]}: “${m[2]}”`];
   if ((m = t.match(/^(\w+)'s agent shares free time/))) return ["agent", `${m[1]}'s agent shares free times, not events`];
   if ((m = t.match(/^\[(?:length )?round \d+\] (\w+)'s agent (proposes|counters|accepts) slot \d+ \(([^,]+, [^,]+), \w+\)(?:: (.*))?/)))
     return ["agent", `${m[1]}'s agent ${{proposes: "suggests", counters: "counters with", accepts: "agrees to"}[m[2]]} ${SLOT(m[3])}`, m[4]];
-  if ((m = t.match(/^(\w+) didn't answer -> agent uses calendar habit: (.*)/))) return ["agent", `${m[1]} didn't answer, so the agent went with ${m[1]}'s usual ${m[2]}`];
+  if (/^\w+ wants a change \(change \d+\)/.test(t)) return ["agent", "Back to the agents for a new time"];  // the words stay on their own side
   if ((m = t.match(/^Pencilled in (.+? ET)/))) return ["pencil", `Pencilled in ${SLOT(m[1])} on both calendars`];
   if ((m = t.match(/^Confirmed (.+? ET)/))) return ["done", `Booked ${SLOT(m[1])}`];
   if (/^Failed|^Error/.test(t)) return ["fail", t];
@@ -523,24 +532,30 @@ function fitNotes() {
 }
 
 // ---- pebbles ----
+// same colours as the Dot's LED (pebble/pi_pebble.py)
+const GREEN_MS = 60000, TALKING = ["paired", "proposing"];
+const FLASH_MS = 1200;
 function led(k) {
-  if (!sid || !view) return "white";
-  if (DONE.includes(view.state)) return "green";
-  if (view.state === "failed") return "white";
-  const p = view.pebbles[k] || {};
-  return p.question && !busy[k] ? "red" : "yellow";
+  if (recording === k) return "yellow";                    // solid bright yellow: the mic is on
+  if (playing && playingPeb === k) return "blue";          // an agent is talking (a speak button is playing)
+  if (Date.now() < flashUntil) return "bright";            // tap / pair
+  if (!sid || !view) return "dim";
+  if (DONE.includes(view.state)) return Date.now() - bookedAt < GREEN_MS ? "green" : "dim";
+  return TALKING.includes(view.state) ? "breathe" : "dim"; // yellow breathing while the agents decide
 }
+// a time is pencilled in and this Dot is waiting for "keep it" or a change
+const myTurn = k => !!(sid && view && view.state === "pencilled_in" && (view.pebbles[k] || {}).question && !busy[k]);
 function setHTML(el, html) { if (el._html !== html) el.innerHTML = el._html = html; }
 function render() {
   const st = view ? view.state : "idle";
   for (const k of KEYS) {
     const el = $("#peb-" + k), l = led(k), p = (view && view.pebbles[k]) || {};
-    el.classList.remove("led-red", "led-yellow", "led-green", "fade");
-    if (l === "yellow" && Date.now() < fadeUntil[k]) el.classList.add("fade");
-    else if (l !== "white") el.classList.add("led-" + l);
-    const canTalk = l === "red" && !recording;
-    const tag = !sid ? ["", "Ready"] : l === "red" ? ["", "Listening for you"] : l === "green" ? ["ok", "Confirmed"]
-      : busy[k] ? ["", "Listening…"] : st === "failed" ? ["", "Stopped"] : ["agents", "Agents talking"];
+    el.classList.remove("led-bright", "led-breathe", "led-blue", "led-yellow", "led-green");
+    if (l !== "dim") el.classList.add("led-" + l);
+    const turn = myTurn(k), canTalk = turn && !recording;
+    const tag = !sid ? ["", "Ready"] : DONE.includes(st) ? ["ok", "Booked"] : busy[k] ? ["", "Listening…"]
+      : st === "failed" ? ["", "Stopped"] : TALKING.includes(st) ? ["agents", "Agents talking"]
+      : st === "pencilled_in" ? ["", "Kept. Waiting for " + NAMES[other(k)]] : ["", "Ready"];
     const lastReply = (p.replies || []).slice(-1)[0] || "";
     const said = p.question || (DONE.includes(st) ? p.speak : sid ? lastReply : "") || "";
     const text = said || (DONE.includes(st) ? "All set." : "");
@@ -553,13 +568,13 @@ function render() {
       <div class="talk">
         <button class="btn" data-talk="${k}"></button>
         <div><button class="link small" data-open="${k}"></button></div>
-        <div class="typed"><input placeholder="Type an answer" data-type="${k}"><button data-send="${k}">Send</button></div>
+        <div class="typed"><input placeholder="“keep it”, or a change" data-type="${k}"><button data-send="${k}">Send</button></div>
       </div>
       <div class="err"></div>`;
     const q = s => co.querySelector(s), tg = q(".tag"), tb = q("[data-talk]"), inp = q("[data-type]");
-    q(".sticky").style.display = l === "red" ? "" : "none";
+    q(".sticky").style.display = turn ? "" : "none";
     setHTML(q(".name"), NAMES[k]);
-    tg.style.display = l === "red" ? "none" : ""; tg.className = "tag " + tag[0]; setHTML(tg, tag[1]);
+    tg.style.display = turn ? "none" : ""; tg.className = "tag " + tag[0]; setHTML(tg, tag[1]);
     setHTML(q(".q"), `<span>${esc(text)}</span>${said ? sayBtn("p" + k + "|" + said, said, k) : ""}`);
     setHTML(q(".heard"), p.heard ? "Heard <b>“" + esc(p.heard.text) + "”</b>" : "");
     q(".talk").style.display = sid && !isOver() ? "" : "none";
@@ -575,13 +590,11 @@ function render() {
   // one plain status line
   let now = "Touch the Dots together.", hint = "Drag one onto the other, or tap Pair.";
   if (sid) {
-    const reds = KEYS.filter(k => led(k) === "red").map(k => NAMES[k]);
-    const left = view.seconds_left != null && reds.length ? ` You have ${view.seconds_left} s.` : "";
-    if (st === "paired") now = "Paired.", hint = "Reading the plan…";
-    else if (reds.length) now = "Two Friends: Mayo and Frankie",
-      hint = st === "pencilled_in" ? "Two Devices: Two Dots" : "Hold to talk on your Dot." + left;
-    else if (st === "asking_time_of_day") now = "Checking with the other Dot.", hint = "";
-    else if (st === "proposing") now = "The agents are finding a time.", hint = "They share free times, never your events.";
+    const turns = KEYS.filter(myTurn);
+    if (TALKING.includes(st)) now = view.change_round ? "Finding a new time." : "The agents are finding a time.",
+      hint = "They share free times, never your events.";
+    else if (turns.length) now = "Two Friends: Mayo and Frankie",
+      hint = "Two Devices: Two Dots";  // RJ's wording for this state
     else if (st === "pencilled_in") now = "Pencilled in.", hint = "It locks in at 10 PM unless someone changes it.";
     else if (DONE.includes(st)) now = "Booked.", hint = "On both calendars. Press New session to try again.";
     else if (st === "failed") now = "Something went wrong.", hint = "Press New session to try again.";
@@ -754,14 +767,13 @@ async function sendAnswer(k, call) {
   const r = await call().catch(() => ({ok: false, body: {error: "Network error. Try again."}}));
   busy[k] = false;
   if (!r.ok) errs[k] = r.body.say ? "Didn't catch that. " + r.body.say : (r.body.error || "Something went wrong.");
-  if (r.body && r.body.say && /check with/i.test(r.body.say)) fadeUntil[k] = Date.now() + 6000;
   await poll();
 }
 
 // ---- answers: hold to talk (browser mic -> 16 kHz mono WAV -> Muse Voice Transcribe on the server) ----
 let recording = null, ctx = null, stream = null, proc = null, chunks = [], recTimer = null;
 async function startRec(k) {
-  if (recording || led(k) !== "red") return;
+  if (recording || !myTurn(k)) return;
   errs[k] = "";
   try {
     stream = stream || await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}});
@@ -801,7 +813,7 @@ function toWav(f32, rate) {
 let spaceHeld = null;
 document.addEventListener("keydown", e => {
   if (e.code !== "Space" || e.repeat || /INPUT|BUTTON/.test(document.activeElement.tagName)) return;
-  const k = KEYS.find(k => led(k) === "red" && !busy[k]); if (!k) return;
+  const k = KEYS.find(myTurn); if (!k) return;
   e.preventDefault(); spaceHeld = k; startRec(k);
 });
 document.addEventListener("keyup", e => { if (e.code === "Space" && spaceHeld) { e.preventDefault(); if (recording === spaceHeld) stopRec(); spaceHeld = null; } });
@@ -814,6 +826,7 @@ const sayBtn = (key, text, k) => `<button class="say${playing === key ? " playin
 function markPlaying() {
   document.querySelectorAll("[data-say]").forEach(b => b.classList.toggle("playing", b.dataset.say === playing));
   KEYS.forEach(k => $("#peb-" + k).classList.toggle("speaking", !!playing && playingPeb === k));
+  render();  // the speaking Dot glows blue
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-say]"); if (b) speakLine(b.dataset.say, b.dataset.text, b.dataset.peb); });
 async function speakLine(key, text, k) {
@@ -841,7 +854,7 @@ function stopSpeech() {
 }
 
 // ---- controls ----
-$("#reset").onclick = () => { stopSpeech(); clearInterval(polling); sid = null; calSeen = false; view = null; lastState = null; errs = {mayo: "", frankie: "", global: ""};
+$("#reset").onclick = () => { clearInterval(polling); sid = null; bookedAt = 0; stopSpeech(); calSeen = false; view = null; lastState = null; errs = {mayo: "", frankie: "", global: ""};
   noteN = 0; $("#conv").innerHTML = '<li class="empty">Nothing yet.</li>'; history.replaceState(null, "", location.pathname); render(); loadWeek(); };
 $("#skip").onclick = async () => { $("#skip").disabled = true; await post(`/sim/api/session/${sid}/skip_to_end_of_day`, {}); $("#skip").disabled = false; poll(); };
 
