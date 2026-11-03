@@ -178,6 +178,8 @@ class Sim:
             speak = p["speak"].get(dev)
             if speak:
                 self.allowed.add(speak)
+            if q and q.get("say"):
+                self.allowed.add(q["say"])
             pebbles[key] = {"name": PEOPLE[key]["name"], "question": q and q["say"],
                             "kind": q and q["kind"], "speak": speak, "heard": self.heard[key],
                             "replies": self.replies[key]}
@@ -379,7 +381,7 @@ class Handler(classic.Handler):
             return self.send(404, {"error": "no such session"})
         if text not in sim.allowed:
             sim.view()  # refresh the allowed lines
-        if text not in sim.allowed:
+        if text not in sim.allowed and not speakable_note(sim, text):
             return self.send(403, {"error": "only this session's own lines are spoken"})
         if sim.tts >= MAX_TTS:
             return self.send(429, {"error": "voice limit for this session"})
@@ -388,6 +390,23 @@ class Handler(classic.Handler):
         timing.record(kind="model", model=TTS_ID, ok=True, seconds=took, sid=sim.id, cached=cached,
                       label="tts", what=f'Spoke "{text[:44]}"' + (" (cached)" if cached else ""))
         self.send(200, data, "audio/wav")
+
+
+# The page reads the agents' notes aloud on request, in its own plain wording ("Mayo's agent
+# suggests Thursday November 5, 11:00 AM"). Allow a note only if every word in it comes from
+# this session's own log lines or this small set of words the page uses to phrase them.
+WORD = re.compile(r"[a-z0-9]+")
+NOTE_WORDS = set("""suggests counters with agrees to shares free times not events didn t answer so the agent
+went usual pencilled in on both calendars booked ask pebbles s am pm et monday tuesday wednesday thursday
+friday saturday sunday january february march april may june july august september october november
+december""".split())
+
+
+def speakable_note(sim, text):
+    if not text or len(text) > 240:
+        return False
+    vocab = set(WORD.findall(" ".join(sim.s.lines).lower())) | NOTE_WORDS
+    return set(WORD.findall(text.lower())) <= vocab
 
 
 def main():

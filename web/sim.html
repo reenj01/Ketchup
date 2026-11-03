@@ -20,7 +20,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"DM Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
 button,input{font:inherit;color:inherit}
-.wrap{max-width:1000px;margin:0 auto;padding:26px 28px 48px}
+.wrap{max-width:1000px;margin:0 auto;padding:22px 28px 40px}
 header{display:flex;justify-content:space-between;align-items:center}
 .brand{font-family:var(--display);font-weight:800;font-size:19px;letter-spacing:-.02em}
 .brand i{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--orange);margin-right:8px;vertical-align:0}
@@ -30,29 +30,33 @@ header{display:flex;justify-content:space-between;align-items:center}
 .pill{border:1.5px solid var(--ink);border-radius:999px;padding:6px 14px;color:var(--ink);font-weight:500}
 .pill:hover{background:var(--yellow)}
 
-.hero{margin:50px 0 6px;position:relative}
-h1{font-family:var(--display);font-size:clamp(54px,10vw,118px);line-height:.9;letter-spacing:-.045em;margin:0;font-weight:800;color:var(--orange);position:relative;z-index:1}
-.squiggle{position:absolute;z-index:0;left:clamp(150px,30vw,330px);top:-44px;width:clamp(180px,34vw,340px);height:auto;pointer-events:none}
-.star{position:absolute;right:4%;top:6px;width:38px;height:38px}
-.plan{margin-top:18px;color:var(--soft);font-size:16px}
+/* the headline; squiggle and star sized in em so they scale with it */
+.hero{position:relative;font-size:clamp(46px,12vw,72px);margin:34px 0 0}
+h1{font-family:var(--display);font-size:1em;line-height:.9;letter-spacing:-.045em;margin:0;font-weight:800;color:var(--orange);position:relative;z-index:1;white-space:nowrap}
+.squiggle{position:absolute;z-index:0;left:2.75em;top:-.42em;width:2.9em;height:auto;pointer-events:none}
+.star{position:absolute;left:4.7em;top:-.18em;width:.36em;height:.36em}
+.plan{margin-top:14px;color:var(--soft);font-size:16px}
 .plan input{border:0;border-bottom:1.5px solid var(--hair);padding:2px 0;max-width:62vw;color:var(--ink);background:none;outline:none}
 .plan input:focus{border-bottom-color:var(--peri)}
 .plan input:disabled{color:var(--soft);border-bottom-color:transparent}
 
-.status{margin:40px 0 0;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;min-height:40px}
-.status .now{font-family:var(--serif);font-size:36px;line-height:1;letter-spacing:-.01em}
-.status .hint{color:var(--soft);font-size:15px}
+.stage{display:grid;grid-template-columns:1fr;gap:44px;margin-top:30px}
+.col{min-width:0;display:flex;flex-direction:column}
+.status{min-height:62px}
+.status .now{display:block;font-family:var(--serif);font-size:30px;line-height:1.05;letter-spacing:-.01em}
+.status .hint{display:block;color:var(--soft);font-size:14px;margin-top:4px;line-height:1.35}
 
 /* section titles, ticket-style: "the plan ( 02 )" */
-h2{font-family:var(--serif);font-weight:400;font-size:30px;margin:0 0 16px;letter-spacing:-.01em}
+h2{font-family:var(--serif);font-weight:400;font-size:30px;line-height:1.05;margin:0 0 14px;letter-spacing:-.01em}
 h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 
 /* pebbles */
-.pair{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:20px;border:1.5px solid var(--line);border-radius:22px}
-.side{padding:36px 26px 30px;text-align:center;position:relative;border-radius:22px;transition:background .5s}
+:root{--peb:104px;--sidepad:28px}
+.pair{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:12px;border:1.5px solid var(--line);border-radius:22px}
+.side{padding:var(--sidepad) 14px 22px;text-align:center;position:relative;border-radius:22px;transition:background .5s}
 .side + .side{border-left:1.5px solid var(--line);border-radius:0 22px 22px 0}
 .side:first-of-type{border-radius:22px 0 0 22px}
-.pebble{width:132px;height:132px;border-radius:50%;margin:0 auto;cursor:grab;touch-action:none;position:relative;
+.pebble{width:var(--peb);height:var(--peb);border-radius:50%;margin:0 auto;cursor:grab;touch-action:none;position:relative;
   background:radial-gradient(circle at 38% 32%,#ffffff 0%,#f4f2ee 45%,#e2dfd8 100%);
   box-shadow:0 10px 24px rgba(29,27,34,.10), inset 0 -6px 14px rgba(0,0,0,.04);
   transition:box-shadow .6s ease, transform .45s cubic-bezier(.2,.8,.2,1)}
@@ -66,127 +70,183 @@ h2 i{font-style:italic;color:var(--soft);font-size:.8em;margin-left:4px}
 .pebble.led-yellow .dot,.pebble.fade .dot{background:rgb(var(--led-yellow))}
 .pebble.led-red .dot{background:rgb(var(--led-red))}
 .pebble.led-green .dot{background:rgb(var(--led-green))}
-.pebble.speaking{transform:scale(1.03)}
+.pebble.speaking{transform:scale(1.05)}
 .pebble.rec{transform:scale(.97)}
 .pebble.dragging{cursor:grabbing;transition:box-shadow .6s ease}
 @keyframes breathe{50%{opacity:.55}}
 @keyframes fadein{from{opacity:0}}
-.name{margin-top:22px;font-family:var(--serif);font-size:30px;line-height:1}
-.tag{display:inline-block;margin-top:10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:4px 10px;border-radius:999px;border:1.5px solid var(--hair);color:var(--soft)}
+.name{margin-top:18px;font-family:var(--serif);font-size:28px;line-height:1}
+.tag{display:inline-block;margin-top:9px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:4px 10px;border-radius:999px;border:1.5px solid var(--hair);color:var(--soft)}
 .tag.agents{background:var(--peri);border-color:var(--peri);color:#fff}
 .tag.ok{background:var(--green);border-color:var(--green);color:var(--ink)}
 .sticky{font-style:normal;position:absolute;font-family:var(--mono);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:5px 10px;box-shadow:2px 2px 0 var(--ink);border:1.5px solid var(--ink);white-space:nowrap;z-index:4}
-.side .sticky{top:16px;right:18px;background:var(--orange);color:#fff;transform:rotate(6deg)}
-.q{margin:16px auto 0;max-width:300px;font-size:16px;line-height:1.45;min-height:46px}
-.heard{color:var(--soft);font-size:14px;margin-top:6px;min-height:20px}
+.side .sticky{top:12px;right:10px;background:var(--orange);color:#fff;transform:rotate(6deg);font-size:10.5px;padding:4px 8px}
+.q{margin:12px auto 0;max-width:300px;font-size:15px;line-height:1.4;min-height:42px;display:flex;justify-content:center;align-items:flex-start;gap:8px}
+.q span{text-wrap:balance}
+.heard{color:var(--soft);font-size:13.5px;margin-top:4px;min-height:20px}
 .heard b{background:var(--pink);color:var(--ink);font-weight:500;padding:1px 7px;border-radius:6px}
-.talk{margin-top:16px}
-.btn{border:1.5px solid var(--ink);border-radius:999px;padding:12px 24px;font-weight:700;font-size:15px;cursor:pointer;background:var(--ink);color:#fff;user-select:none;-webkit-user-select:none;touch-action:none;box-shadow:3px 3px 0 var(--ink);transition:transform .1s, box-shadow .1s}
+.talk{margin-top:12px}
+.btn{border:1.5px solid var(--ink);border-radius:999px;padding:11px 22px;font-weight:700;font-size:15px;cursor:pointer;background:var(--ink);color:#fff;user-select:none;-webkit-user-select:none;touch-action:none;box-shadow:3px 3px 0 var(--ink);transition:transform .1s, box-shadow .1s}
 .btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
 .btn.orange{background:var(--orange)}
 .btn.rec{background:var(--peri)}
 .btn:disabled{background:#f4f2f6;color:var(--faint);border-color:var(--hair);box-shadow:none;cursor:default}
-.typed{display:none;margin:10px auto 0;max-width:260px;gap:6px}
+.typed{display:none;margin:8px auto 0;max-width:240px;gap:6px}
 .typed.open{display:flex}
 .typed input{flex:1;min-width:0;border:0;border-bottom:1.5px solid var(--hair);padding:6px 2px;outline:none;background:none}
 .typed input:focus{border-bottom-color:var(--peri)}
 .typed button{border:0;background:none;color:var(--peri-ink);cursor:pointer;font-weight:700}
-.small{font-size:13px;margin-top:10px}
-.err{color:#c2381a;font-size:14px;margin-top:8px;min-height:0}
-.pairbtn{position:absolute;left:50%;top:86px;transform:translateX(-50%);z-index:3}
+.small{font-size:13px;margin-top:8px}
+.err{color:#c2381a;font-size:13.5px;margin-top:6px;min-height:0}
+.pairbtn{position:absolute;left:50%;top:calc(var(--sidepad) + var(--peb) / 2 - 22px);transform:translateX(-50%);z-index:3}
 .pairbtn:active{transform:translate(calc(-50% + 2px),2px)}
 
-/* lower half */
-.grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:56px;margin-top:60px}
+/* speak buttons: nothing plays until one is pressed */
+.say{flex:none;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--ink);background:#fff;color:var(--ink);display:inline-grid;place-items:center;cursor:pointer;padding:0;box-shadow:1.5px 1.5px 0 var(--ink);transition:background .2s}
+.say svg{width:14px;height:14px;display:block}
+.say:hover{background:var(--yellow)}
+.say:active{transform:translate(1px,1px);box-shadow:.5px .5px 0 var(--ink)}
+.say .w{opacity:.9}
+.say.playing{background:var(--peri);color:#fff}
+.say.playing .w{animation:wave 1s ease-in-out infinite}
+.say.playing .w2{animation-delay:.25s}
+@keyframes wave{0%,100%{opacity:.2}50%{opacity:1}}
+.novoice .say{display:none}
+
+/* the talk */
+.notes-box{flex:1;min-height:0;overflow:hidden}
 .notes{list-style:none;margin:0;padding:0}
-.notes li{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--hair);font-size:15px;line-height:1.45}
-.chip{flex:none;font-family:var(--mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:6px;margin-top:1px;width:134px;text-align:center}
+.notes li{display:flex;gap:12px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--hair);font-size:14.5px;line-height:1.4}
+.notes li .txt{flex:1;min-width:0}
+.notes li .say{margin-top:-2px}
+.chip{flex:none;font-family:var(--mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:3px 6px;border-radius:6px;margin-top:1px;width:136px;text-align:center;letter-spacing:.02em}
 .notes li.human .chip{background:var(--pink)}
 .notes li.agent .chip{background:var(--peri);color:#fff}
 .notes li.pencil .chip{background:var(--yellow)}
 .notes li.done .chip{background:var(--green)}
-.notes li.fail .chip{background:var(--hair)}
-.notes li small{display:block;color:var(--soft);font-size:13.5px;margin-top:2px}
+.notes li.fail .chip,.notes li.more .chip{background:var(--hair)}
+.notes li small{display:block;color:var(--soft);font-size:13px;margin-top:2px}
+.notes li.brief small{display:none}
+.notes li.hid{display:none}
+.notes li.more{color:var(--soft)}
 .notes .empty{color:var(--faint);border-bottom:0}
 
 /* the plan as a ticket: notches cut into both sides, a perforation between them */
-.ticket{position:relative;border-radius:20px;background:#f6f4f8;min-height:300px;display:flex;flex-direction:column;
-  -webkit-mask:radial-gradient(circle 16px at 0 196px,#0000 97%,#000) left/51% 100% no-repeat,radial-gradient(circle 16px at 100% 196px,#0000 97%,#000) right/51% 100% no-repeat;
-          mask:radial-gradient(circle 16px at 0 196px,#0000 97%,#000) left/51% 100% no-repeat,radial-gradient(circle 16px at 100% 196px,#0000 97%,#000) right/51% 100% no-repeat}
-.ticket .top{height:196px;flex:none;padding:22px 26px 14px;display:flex;flex-direction:column}
-.ticket .bot{flex:1;padding:14px 26px 18px;border-top:2px dashed rgba(29,27,34,.28);margin:0 22px;padding-left:4px;padding-right:4px}
-.ticket .t{font-family:var(--serif);font-size:30px;line-height:1}
+:root{--tk:170px}
+.ticket{position:relative;border-radius:20px;background:#f6f4f8;display:flex;flex-direction:column;flex:none;
+  -webkit-mask:radial-gradient(circle 15px at 0 var(--tk),#0000 97%,#000) left/51% 100% no-repeat,radial-gradient(circle 15px at 100% var(--tk),#0000 97%,#000) right/51% 100% no-repeat;
+          mask:radial-gradient(circle 15px at 0 var(--tk),#0000 97%,#000) left/51% 100% no-repeat,radial-gradient(circle 15px at 100% var(--tk),#0000 97%,#000) right/51% 100% no-repeat}
+.ticket .top{height:var(--tk);flex:none;padding:18px 24px 12px;display:flex;flex-direction:column}
+.ticket .bot{flex:1;padding:12px 4px 14px;border-top:2px dashed rgba(29,27,34,.28);margin:0 20px}
+.ticket .t{font-family:var(--serif);font-size:28px;line-height:1}
 .ticket .t i{font-size:.8em;color:rgba(29,27,34,.55)}
 .ticket .day{display:flex;align-items:flex-end;gap:14px;margin-top:auto}
-.ticket .num{font-family:var(--mono);font-weight:700;font-size:104px;line-height:.82;letter-spacing:-.06em}
+.ticket .num{font-family:var(--mono);font-weight:700;font-size:calc(var(--tk) * .5);line-height:.82;letter-spacing:-.06em}
 .ticket .mo{font-family:var(--serif);font-size:24px;line-height:1.05;padding-bottom:4px}
 .ticket .mo span{display:block;font-family:"DM Sans",sans-serif;font-size:14px;color:rgba(29,27,34,.6)}
-.row{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:3px 0}
+.row{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:2px 0}
 .row span{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:rgba(29,27,34,.6);padding-top:2px}
-.ticket .blank{margin:auto 0;color:var(--soft);font-size:15px;line-height:1.5}
+.ticket .blank{margin:auto 0;color:var(--soft);font-size:14.5px;line-height:1.45}
 .ticket.pencil{background:var(--yellow)}
 .ticket.booked{background:var(--green)}
 
-.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));margin-top:34px;border:1.5px solid var(--line);border-radius:14px;position:relative}
-.week div{position:relative;padding:16px 7px 12px;border-right:1.5px solid var(--line);min-height:92px}
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));margin-top:28px;border:1.5px solid var(--line);border-radius:14px;position:relative;flex:none}
+.week div{position:relative;padding:14px 5px 10px;border-right:1.5px solid var(--line);min-height:80px}
 .week div:first-child{border-radius:12px 0 0 12px}
 .week div:last-child{border-right:0;border-radius:0 12px 12px 0}
 .week span{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--soft)}
-.week b{display:block;font-family:var(--mono);font-size:24px;font-weight:400;letter-spacing:-.04em;margin-top:2px}
-.week em{display:block;margin-top:8px;font-style:normal;font-size:11.5px;font-weight:700}
+.week b{display:block;font-family:var(--mono);font-size:22px;font-weight:400;letter-spacing:-.04em;margin-top:2px}
+.week em{display:block;margin-top:6px;font-style:normal;font-size:11px;font-weight:700;line-height:1.2}
 .week .hit{background:var(--yellow)}
 .week .hit.ok{background:var(--green)}
 .week .sticky{font-size:10px;padding:3px 6px;box-shadow:1.5px 1.5px 0 var(--ink)}
 .week .sticky.today{top:-12px;left:50%;margin-left:-26px;background:var(--yellow);transform:rotate(-5deg)}
 .week .sticky.done{bottom:-14px;left:50%;background:var(--pink);transform:translateX(-50%) rotate(5deg)}
 
-details{margin-top:48px;font-size:14px;color:var(--soft)}
-summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+/* model calls: one chip row; the list opens as a card on top, never a scroll box */
+details{margin-top:auto;padding-top:22px;font-size:14px;color:var(--soft);position:relative}
+summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 summary::-webkit-details-marker{display:none}
-summary h2{margin:0}
+summary h2{margin:0;font-size:24px}
 summary .models{display:flex;gap:6px;flex-wrap:wrap}
-summary .models em,.calls td.m em{font-style:normal;font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:6px;background:var(--peri);color:#fff}
+summary .models em,.calls td.m em{font-style:normal;font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:6px;background:var(--peri);color:#fff;white-space:nowrap}
 summary .models em:nth-child(2),.calls td.m em.v{background:var(--pink);color:var(--ink)}
 summary .models em:nth-child(3),.calls td.m em.s{background:var(--yellow);color:var(--ink)}
-.calls{width:100%;border-collapse:collapse;margin-top:16px}
-.calls td{padding:8px 10px 8px 0;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--ink)}
+#calltoggle{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.pop{margin-top:14px}
+.calls{width:100%;border-collapse:collapse}
+.calls td{padding:7px 10px 7px 0;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--ink);font-size:13.5px}
 .calls td.m{white-space:nowrap}
 .calls td.s{text-align:right;white-space:nowrap;font-family:var(--mono);font-size:12px}
 .calls tr.fail td{color:#c2381a}
+.calls tr.hid{display:none}
+.calls tr.more td{color:var(--soft)}
 
-footer{margin-top:60px;padding-top:18px;border-top:1.5px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--soft)}
+footer{margin-top:44px;padding-top:12px;border-top:1.5px solid var(--line);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--soft)}
 footer .r{display:flex;gap:18px}
+footer .link{font-size:12.5px;padding:0}
 
-@media (max-width:760px){
-  .wrap{padding:20px 18px 40px}
-  .hero{margin-top:36px}
-  .squiggle{left:110px;top:-18px;width:200px}
-  .star{width:28px;height:28px;top:-6px}
-  .status{margin-top:30px}
-  .status .now{font-size:30px}
-  .side{padding:30px 8px 22px}
-  .side .sticky{top:10px;right:6px;font-size:10px;padding:3px 7px}
-  .pebble{width:96px;height:96px}
-  .name{font-size:26px}
-  .pairbtn{position:static;transform:none;grid-column:1/-1;order:3;justify-self:center;margin:4px 0 22px}
-  .pairbtn:active{transform:translate(2px,2px)}
-  .side + .side{border-radius:0 22px 0 0}
-  .side:first-of-type{border-radius:22px 0 0 0}
+/* laptop and desktop: one screen, three columns, nothing scrolls */
+@media (min-width:900px){
+  html,body{height:100%}
+  :root{--peb:clamp(84px,14vh,150px);--sidepad:clamp(18px,3.4vh,40px);--tk:clamp(132px,19vh,220px)}
+  .wrap{max-width:1640px;height:100vh;height:100dvh;display:flex;flex-direction:column;padding:clamp(14px,2.4vh,28px) clamp(28px,3vw,56px) clamp(10px,1.6vh,20px)}
+  .hero{font-size:clamp(40px,7.4vh,86px);margin-top:clamp(10px,2vh,26px);display:flex;align-items:flex-end;gap:28px}
+  .plan{margin:0 0 .14em;font-size:clamp(14px,1.9vh,17px)}
+  .squiggle{left:2.75em}
+  .star{left:5.3em;top:-.22em}
+  .col{min-height:0}
+  .stage{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);grid-template-columns:minmax(0,1.05fr) minmax(0,1.15fr) minmax(0,.85fr);gap:clamp(28px,2.8vw,56px);margin-top:clamp(16px,3vh,38px)}
+  .status .now{font-size:clamp(24px,3.6vh,36px)}
+  .name{margin-top:clamp(12px,2vh,22px);font-size:clamp(24px,3.4vh,32px)}
+  .q{font-size:clamp(14px,1.9vh,17px)}
+  h2{font-size:clamp(24px,3.6vh,34px)}
+  .status{min-height:calc(clamp(24px,3.6vh,36px) * 1.05 + 14px * 1.35 * 2 + 4px)}
+  .col.talk-col h2,.col.plan-col h2{margin-bottom:12px}
+  .notes li{font-size:clamp(13.5px,1.8vh,16px)}
+  .week{margin-top:clamp(18px,3.2vh,36px)}
+  .week div{min-height:clamp(66px,9.6vh,108px)}
+  .week b{font-size:clamp(18px,2.8vh,28px)}
+  .ticket .t{font-size:clamp(24px,3.4vh,32px)}
+  footer{margin-top:clamp(10px,1.8vh,22px);padding-top:10px}
+  details[open] .pop{position:absolute;right:0;bottom:calc(100% + 10px);width:min(680px,46vw);margin:0;background:#fff;border:1.5px solid var(--ink);border-radius:16px;box-shadow:4px 4px 0 var(--ink);padding:10px 18px 8px;z-index:20}
+}
+@media (min-width:900px) and (min-height:950px){
+  :root{--peb:clamp(84px,17vh,200px);--sidepad:clamp(18px,4.6vh,60px)}
+}
+@media (min-width:900px) and (max-width:1180px){
+  .chip{width:auto;min-width:72px}
+  .notes li{gap:8px}
+}
+
+@media (max-width:899px){
   .calls{font-size:13px}
   .calls tr{display:grid;grid-template-columns:1fr auto;border-bottom:1px solid var(--hair);padding:8px 0}
   .calls td{border:0;padding:2px 0}
   .calls td.m{grid-column:1;grid-row:1}
   .calls td.s{grid-column:2;grid-row:1}
   .calls td:nth-child(2){grid-column:1/-1}
-  .q{font-size:15px}
-  .notes li{flex-direction:column;gap:6px}
+}
+@media (max-width:760px){
+  .wrap{padding:20px 18px 40px}
+  .hero{margin-top:36px}
+  .side{padding:30px 8px 22px}
+  .side .sticky{top:8px;right:4px;font-size:9.5px;padding:3px 6px}
+  :root{--peb:96px}
+  .name{font-size:26px}
+  .pairbtn{position:static;transform:none;grid-column:1/-1;order:3;justify-self:center;margin:4px 0 22px}
+  .pairbtn:active{transform:translate(2px,2px)}
+  .side + .side{border-radius:0 22px 0 0}
+  .side:first-of-type{border-radius:22px 0 0 0}
+  .notes li{flex-wrap:wrap;gap:6px 10px}
+  .notes li .txt{flex-basis:100%;order:3}
+  .notes li .say{margin-left:auto;order:2}
   .chip{width:auto}
-  .grid{grid-template-columns:1fr;gap:44px;margin-top:44px}
+  :root{--tk:180px}
   .ticket .num{font-size:88px}
   .week b{font-size:17px}
   .week div{padding:14px 3px 12px;min-height:84px}
   .week .sticky.today{margin-left:-20px}
-  .squiggle{top:-30px}
   .week span{font-size:9px}
   .week em{font-size:10px}
   .week .sticky{font-size:8.5px;padding:2px 4px}
@@ -208,40 +268,39 @@ footer .r{display:flex;gap:18px}
     <div class="plan">Mayo says “<input id="phrase" value="let's catch up this week" maxlength="120" aria-label="What Mayo says">”</div>
   </section>
 
-  <div class="status"><span class="now" id="now">Touch the pebbles together.</span><span class="hint" id="hint">Drag one onto the other, or tap Pair.</span></div>
-
-  <section class="pair" id="stage">
-    <button class="btn orange pairbtn" id="tapbtn">Pair</button>
-    <div class="side" id="side-mayo">
-      <div class="pebble" id="peb-mayo"><span class="dot"></span></div>
-      <div id="co-mayo"></div>
+  <main class="stage">
+    <div class="col">
+      <div class="status"><span class="now" id="now">Touch the pebbles together.</span><span class="hint" id="hint">Drag one onto the other, or tap Pair.</span></div>
+      <section class="pair" id="stage">
+        <button class="btn orange pairbtn" id="tapbtn">Pair</button>
+        <div class="side" id="side-mayo">
+          <div class="pebble" id="peb-mayo"><span class="dot"></span></div>
+          <div id="co-mayo"></div>
+        </div>
+        <div class="side" id="side-frankie">
+          <div class="pebble" id="peb-frankie"><span class="dot"></span></div>
+          <div id="co-frankie"></div>
+        </div>
+      </section>
     </div>
-    <div class="side" id="side-frankie">
-      <div class="pebble" id="peb-frankie"><span class="dot"></span></div>
-      <div id="co-frankie"></div>
-    </div>
-  </section>
-
-  <section class="grid">
-    <div>
+    <div class="col talk-col">
       <h2>the talk <i>( 01 )</i></h2>
-      <ul class="notes" id="conv"><li class="empty">Nothing yet.</li></ul>
+      <div class="notes-box" id="conv-box"><ul class="notes" id="conv"><li class="empty">Nothing yet.</li></ul></div>
     </div>
-    <div>
+    <div class="col plan-col">
       <h2>the plan <i>( 02 )</i></h2>
       <div class="ticket" id="card"></div>
       <div class="week" id="week"></div>
+      <details id="calls-box">
+        <summary><h2>models <i>( 03 )</i></h2><span class="models"><em>Muse Spark</em><em>Muse Voice Transcribe</em><em>MMS-TTS</em></span> <span id="callsum"></span> <span id="calltoggle"></span></summary>
+        <div class="pop"><table class="calls" id="calls"></table></div>
+      </details>
     </div>
-  </section>
-
-  <details id="calls-box">
-    <summary><h2>models <i>( 03 )</i></h2><span class="models"><em>Muse Spark</em><em>Muse Voice Transcribe</em><em>MMS-TTS</em></span> <span id="callsum"></span> <span id="calltoggle"></span></summary>
-    <table class="calls" id="calls"></table>
-  </details>
+  </main>
 
   <footer>
     <span>Simulated pebbles. Real hardware: Raspberry Pi 5 pebble shown in the video. Sample calendars, nothing is booked for real.</span>
-    <span class="r"><button class="link" id="skip" style="display:none">Skip to 10 PM</button><button class="link" id="mute">Voice on</button><a class="link" href="/classic">Classic page</a></span>
+    <span class="r"><button class="link" id="skip" style="display:none">Skip to 10 PM</button><a class="link" href="/classic">Classic page</a></span>
   </footer>
 </div>
 <script>
@@ -250,7 +309,7 @@ const KEYS = ["mayo", "frankie"];
 const NAMES = {mayo: "Mayo", frankie: "Frankie"};
 const DONE = ["booked", "agreed (dry run, not booked)"];
 let sid = null, view = null, lineCount = 0, polling = null, busy = {mayo: false, frankie: false};
-let errs = {mayo: "", frankie: "", global: ""}, spoken = new Set(), voiceOn = true, health = {};
+let errs = {mayo: "", frankie: "", global: ""}, health = {};
 let fadeUntil = {mayo: 0, frankie: 0}, lastState = null, typeOpen = {mayo: false, frankie: false}, weekData = null;
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const other = k => k === "mayo" ? "frankie" : "mayo";
@@ -304,9 +363,9 @@ async function start() {
   const r = await post("/sim/api/tap", {phrase: $("#phrase").value, replaces: sid});
   $("#tapbtn").disabled = false;
   if (!r.ok) { errs.global = r.body.error || "Couldn't start. Try again in a moment."; return render(); }
-  sid = r.body.session_id; lineCount = 0; spoken = new Set(); typeOpen = {mayo: false, frankie: false};
+  sid = r.body.session_id; lineCount = 0; typeOpen = {mayo: false, frankie: false};
   view = {state: "paired", pebbles: {}, calls: [], lines: []};
-  $("#conv").innerHTML = ""; history.replaceState(null, "", "?session=" + sid);
+  stopSpeech(); noteN = 0; $("#conv").innerHTML = ""; history.replaceState(null, "", "?session=" + sid);
   clearInterval(polling); polling = setInterval(poll, 800); poll();
 }
 async function poll() {
@@ -321,7 +380,7 @@ async function poll() {
   addNotes(fresh);
   if (view.state !== lastState) { lastState = view.state; loadWeek(); }
   if (isOver()) { clearInterval(polling); setTimeout(loadWeek, 300); }
-  queueSpeech(); render();
+  render();
 }
 
 // ---- the agents' notes: plain sentences, technical lines left out ----
@@ -342,6 +401,10 @@ function note(l) {
   if (/change|new time|different/i.test(t) && !/^\w+'s pebble says|^(Mayo|Frankie)'s pebble/.test(t) && t.length < 140) return ["agent", t];
   return null;
 }
+let noteN = 0;
+const DAYS = {Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday"};
+const MONTHS = {Jan: "January", Feb: "February", Mar: "March", Apr: "April", Jun: "June", Jul: "July", Aug: "August", Sep: "September", Oct: "October", Nov: "November", Dec: "December"};
+const aloud = s => s.replace(/[“”"]/g, "").replace(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/g, m => DAYS[m]).replace(/\b(Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/g, m => MONTHS[m]);
 function addNotes(lines) {
   const box = $("#conv");
   for (const l of lines) {
@@ -352,9 +415,27 @@ function addNotes(lines) {
     else if (n[0] === "agent" && (m = text.match(/^(\w+)'s agent (.*)$/))) [chip, text] = [m[1] + "'s agent", m[2][0].toUpperCase() + m[2].slice(1)];
     else chip = {agent: "agents", pencil: "pencilled", done: "booked", fail: "note", human: "said"}[n[0]] || "note";
     const li = document.createElement("li"); li.className = n[0];
-    li.innerHTML = `<span class="chip">${esc(chip)}</span><span>${esc(text)}${n[2] ? `<small>${esc(n[2])}</small>` : ""}</span>`;
+    // agent lines get a speak button; it reads the line in the same words shown here
+    const said = n[0] !== "agent" ? "" : aloud((/'s agent$/.test(chip) ? chip + " " + text[0].toLowerCase() + text.slice(1) : text) + (n[2] ? ". " + n[2] : ""));
+    const who = /^Frankie/.test(chip) ? "frankie" : "mayo";
+    li.innerHTML = `<span class="chip">${esc(chip)}</span><span class="txt">${esc(text)}${n[2] ? `<small>${esc(n[2])}</small>` : ""}</span>${said ? sayBtn("n" + noteN++, said, who) : ""}`;
     box.appendChild(li);
   }
+  fitNotes();
+}
+// one screen, no scroll box: shorten older lines, then fold the oldest into "+ N earlier"
+const wide = () => matchMedia("(min-width:900px)").matches;
+function fitNotes() {
+  const box = $("#conv-box"), ul = $("#conv"), items = [...ul.querySelectorAll("li:not(.more):not(.empty)")];
+  items.forEach(li => li.classList.remove("hid", "brief"));
+  ul.querySelectorAll("li.more").forEach(li => li.remove());
+  if (!wide()) return;
+  const over = () => ul.offsetHeight > box.clientHeight;
+  for (const li of items.slice(0, -3)) { if (!over()) break; li.classList.add("brief"); }
+  if (!over()) return;
+  const more = document.createElement("li"); more.className = "more"; ul.prepend(more);
+  let n = 0;
+  for (const li of items) { if (!over() && n) break; li.classList.add("hid"); n++; more.innerHTML = `<span class="chip">earlier</span><span class="txt">+ ${n}</span>`; if (!over()) break; }
 }
 
 // ---- pebbles ----
@@ -376,13 +457,14 @@ function render() {
     const tag = !sid ? ["", "Ready"] : l === "red" ? ["", "Listening for you"] : l === "green" ? ["ok", "Confirmed"]
       : busy[k] ? ["", "Listening…"] : st === "failed" ? ["", "Stopped"] : ["agents", "Agents talking"];
     const lastReply = (p.replies || []).slice(-1)[0] || "";
-    const text = p.question || (DONE.includes(st) ? (p.speak || "All set.") : sid ? lastReply : "");
+    const said = p.question || (DONE.includes(st) ? p.speak : sid ? lastReply : "") || "";
+    const text = said || (DONE.includes(st) ? "All set." : "");
     const co = $("#co-" + k), had = co.querySelector("input"), typed = had ? had.value : "", focused = had && document.activeElement === had;
     co.innerHTML = `
       ${l === "red" ? '<span class="sticky">Your turn</span>' : ""}
       <div class="name">${NAMES[k]}</div>
       ${l === "red" ? "" : `<span class="tag ${tag[0]}">${tag[1]}</span>`}
-      <div class="q">${esc(text)}</div>
+      <div class="q"><span>${esc(text)}</span>${said ? sayBtn("p" + k + "|" + said, said, k) : ""}</div>
       <div class="heard">${p.heard ? "Heard <b>“" + esc(p.heard.text) + "”</b>" : ""}</div>
       <div class="talk" style="${sid && !isOver() ? "" : "display:none"}">
         <button class="btn ${recording === k ? "rec" : canTalk ? "orange" : ""}" data-talk="${k}" ${canTalk || recording === k ? "" : "disabled"}>${recording === k ? "Listening… let go to send" : "Hold to talk"}</button>
@@ -440,8 +522,22 @@ function renderCalls() {
   $("#callsum").textContent = calls.length ? `${calls.length} calls` : "";
   $("#calltoggle").textContent = calls.length ? "· " + ($("#calls-box").open ? "hide" : "show") : "";
   $("#calls").innerHTML = calls.map(c => `<tr class="${c.ok ? "" : "fail"}"><td class="m"><em class="${/transcribe/.test(c.model) ? "v" : /tts/.test(c.model) ? "s" : ""}">${esc(c.model.replace(/^meta-models\//, ""))}</em></td><td>${esc(c.what)}${c.ok ? "" : " (failed, used backup)"}</td><td class="s">${c.cached ? "saved" : c.seconds.toFixed(2) + " s"}</td></tr>`).join("");
+  fitCalls();
 }
 $("#calls-box").addEventListener("toggle", renderCalls);
+// the open list is a card, not a scroll box: if it would run off the top, fold the oldest calls
+function fitCalls() {
+  const pop = $("#calls-box .pop"), rows = [...$("#calls").querySelectorAll("tr:not(.more)")];
+  $("#calls").querySelectorAll("tr.more").forEach(r => r.remove());
+  if (!$("#calls-box").open || !wide()) return;
+  const over = () => pop.getBoundingClientRect().top < 8;
+  if (!over()) return;
+  const more = document.createElement("tr"); more.className = "more"; $("#calls").prepend(more);
+  let n = 0;
+  for (const r of rows) { r.classList.add("hid"); n++; more.innerHTML = `<td colspan="3">+ ${n} earlier</td>`; if (!over()) break; }
+}
+document.addEventListener("click", e => { const box = $("#calls-box"); if (box.open && !box.contains(e.target)) box.open = false; });
+addEventListener("resize", () => { fitPhrase(); fitNotes(); renderCalls(); });
 
 // ---- week: big numerals, the hold as one block ----
 async function loadWeek() {
@@ -531,41 +627,43 @@ document.addEventListener("keydown", e => {
 });
 document.addEventListener("keyup", e => { if (e.code === "Space" && spaceHeld) { e.preventDefault(); if (recording === spaceHeld) stopRec(); spaceHeld = null; } });
 
-// ---- voice out: MMS-TTS made on the server, played on that pebble ----
-let speechQ = [], speaking = false, curSrc = null;
+// ---- voice out: only when a speak button is pressed. MMS-TTS is made on the server. ----
+const SPK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6h2.2L8 3.2v9.6L4.7 10H2.5z" fill="currentColor"/><path class="w" d="M10.6 5.8a3 3 0 0 1 0 4.4"/><path class="w w2" d="M12.4 4a5.6 5.6 0 0 1 0 8"/></svg>';
+let playing = null, playingPeb = null, curSrc = null, playTok = 0;
 function unlockAudio() { ctx = ctx || new (window.AudioContext || window.webkitAudioContext)(); ctx.resume(); }
-function queueSpeech() {
-  if (!view || !view.pebbles) return;
-  for (const k of KEYS) {
-    const p = view.pebbles[k]; if (!p) continue;
-    for (const [id, text] of [...(p.replies || []).map((t, i) => [`r${i}`, t]), ...(p.speak ? [["s:" + p.speak, p.speak]] : [])]) {
-      const key = k + "|" + id;
-      if (spoken.has(key)) continue; spoken.add(key); speechQ.push({k, text});
-    }
-  }
-  playNext();
+const sayBtn = (key, text, k) => `<button class="say${playing === key ? " playing" : ""}" data-say="${esc(key)}" data-text="${esc(text)}" data-peb="${k}" aria-label="Play this line" title="Play">${SPK}</button>`;
+function markPlaying() {
+  document.querySelectorAll("[data-say]").forEach(b => b.classList.toggle("playing", b.dataset.say === playing));
+  KEYS.forEach(k => $("#peb-" + k).classList.toggle("speaking", !!playing && playingPeb === k));
 }
-async function playNext() {
-  if (speaking || !speechQ.length) return;
-  const {k, text} = speechQ.shift();
-  if (!voiceOn || health.voice !== "ready" || recording) return playNext();
-  speaking = true;
+document.addEventListener("click", e => { const b = e.target.closest("[data-say]"); if (b) speakLine(b.dataset.say, b.dataset.text, b.dataset.peb); });
+async function speakLine(key, text, k) {
+  unlockAudio();
+  const again = playing === key;
+  stopSpeech();
+  if (again || recording) return;  // pressing the playing one stops it
+  const tok = ++playTok; playing = key; playingPeb = k; markPlaying();
+  const done = () => { if (tok === playTok) { playing = playingPeb = curSrc = null; markPlaying(); } };
   try {
     const r = await post("/sim/api/tts", {session_id: sid, text});
-    if (r.ok && ctx) {
-      const buf = await ctx.decodeAudioData(await r.body.arrayBuffer());
-      await new Promise(res => { curSrc = ctx.createBufferSource(); curSrc.buffer = buf; curSrc.connect(ctx.destination);
-        curSrc.onended = res; $("#peb-" + k).classList.add("speaking"); curSrc.start(); });
-    }
-  } catch (e) {}
-  $("#peb-" + k).classList.remove("speaking"); speaking = false; curSrc = null; playNext();
+    if (tok !== playTok) return;
+    if (!r.ok) return done();
+    const buf = await ctx.decodeAudioData(await r.body.arrayBuffer());
+    if (tok !== playTok) return;
+    curSrc = ctx.createBufferSource(); curSrc.buffer = buf; curSrc.connect(ctx.destination);
+    curSrc.onended = done; curSrc.start();
+    if (isOver()) setTimeout(poll, 300);  // polling has stopped; pick up this call for the model list
+  } catch (e) { done(); }
 }
-function stopSpeech() { speechQ = []; if (curSrc) try { curSrc.stop(); } catch (e) {} }
-$("#mute").onclick = () => { voiceOn = !voiceOn; if (!voiceOn) stopSpeech(); $("#mute").textContent = voiceOn ? "Voice on" : "Voice off"; };
+function stopSpeech() {
+  playTok++;
+  if (curSrc) { curSrc.onended = null; try { curSrc.stop(); } catch (e) {} }
+  playing = playingPeb = curSrc = null; markPlaying();
+}
 
 // ---- controls ----
 $("#reset").onclick = () => { stopSpeech(); clearInterval(polling); sid = null; view = null; lastState = null; errs = {mayo: "", frankie: "", global: ""};
-  $("#conv").innerHTML = '<li class="empty">Nothing yet.</li>'; history.replaceState(null, "", location.pathname); render(); loadWeek(); };
+  noteN = 0; $("#conv").innerHTML = '<li class="empty">Nothing yet.</li>'; history.replaceState(null, "", location.pathname); render(); loadWeek(); };
 $("#skip").onclick = async () => { $("#skip").disabled = true; await post(`/sim/api/session/${sid}/skip_to_end_of_day`, {}); $("#skip").disabled = false; poll(); };
 
 // ---- boot ----
@@ -573,8 +671,10 @@ $("#skip").onclick = async () => { $("#skip").disabled = true; await post(`/sim/
   const r = await api("/sim/api/health").catch(() => null);
   health = (r && r.body) || {};
   if (!health.speech_to_text) errs.global = "Voice input is off here, so type your answers.";
-  if (health.voice === "loading") setTimeout(async () => { health = (await api("/sim/api/health")).body; }, 15000);
-  if (health.voice === "off") $("#mute").style.display = "none";
+  const voiceUi = () => document.body.classList.toggle("novoice", health.voice !== "ready");
+  voiceUi();
+  const recheck = async () => { health = (await api("/sim/api/health").catch(() => ({body: health}))).body || health; voiceUi(); if (health.voice === "loading") setTimeout(recheck, 8000); };
+  if (health.voice === "loading") setTimeout(recheck, 8000);
   const q = new URLSearchParams(location.search).get("session");
   render(); loadWeek();
   if (q) { sid = q; view = {state: "paired", pebbles: {}, calls: []}; polling = setInterval(poll, 800); poll(); }
