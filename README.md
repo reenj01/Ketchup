@@ -10,6 +10,8 @@ AI agent reads their own calendar, and the agents agree on a time and pencil it 
 
 Built for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 2026), Indie track.
 
+Everything in this repo was built during the event. Nothing was built before.
+
 ## Prizes I'm going for
 
 - Indie Developer
@@ -120,16 +122,6 @@ plan, infers habits from each calendar, runs both agents, and maps free-text ans
   right after it is read. No audio is saved.
 - Agents share free windows, not event titles.
 - A person's reason for a change is never passed to the other person.
-
-## Built before vs. during the event
-
-- **Before the event:** no Ketchup code. Nothing written before the kickoff (Oct 26, 2026,
-  12:00 PM ET) is in this repo. The only outside code is the named dependencies in
-  "Third-party and non-Meta components" below, used as libraries, unmodified.
-- **During the event:** everything in this repo: the two Dots' code (`pebble/`), the tap
-  server (`server/`), the agents and calendar logic (`brain/`), the web simulator and live
-  page (`web/`, `deploy/`), the tests, and the recorded replay. The first commit is
-  Oct 27, 2026, 1:27 PM ET (`5d26a4f`), and the full history is in `git log`.
 
 ## Run with no keys (labelled replay)
 
