@@ -15,6 +15,7 @@ file lock serialises the web server, the tap server and the CLI.
 """
 import fcntl
 import json
+import tempfile
 import threading
 import uuid
 from contextlib import contextmanager
@@ -23,6 +24,7 @@ from pathlib import Path
 
 from googleapiclient.errors import HttpError
 
+import clock as clk  # holds.clock() formats a time
 from book import MARK, book, title
 
 __all__ = ["MARK", "STORE", "LISTENERS", "deadline_for", "deadline_text", "get", "create", "move", "confirm",
@@ -32,6 +34,8 @@ from parse_plan import TZ
 from timing import timed
 
 STORE = Path(__file__).parent.parent / "state" / "holds.json"
+if clk.FROZEN:  # a recording or replay starts with no holds, so its prompts (free times) match
+    STORE = Path(tempfile.mkdtemp(prefix="ketchup_holds_")) / "holds.json"
 CONFIRM_AT = time.fromisoformat(SETTINGS["hold_confirm_at"])
 LATE_CONFIRM_AT = time.fromisoformat(SETTINGS["hold_late_confirm_at"])
 LEAD = timedelta(minutes=SETTINGS["hold_lead_min"])
@@ -88,7 +92,7 @@ def _event_ids(hold_id, n):
 
 def create(cal, people, start, minutes, activity, session_id, source, dry_run, now=None):
     """Save the hold, then insert it (tentative) on every calendar."""
-    now = now or datetime.now(TZ)
+    now = now or clk.now()
     hid = uuid.uuid4().hex
     ids = _event_ids(hid, len(people))
     rec = {"id": hid, "source": source, "session_id": session_id, "dry_run": dry_run,
@@ -120,7 +124,7 @@ def _patch_all(cal, rec, body):
 
 def move(cal, hold_id, start, minutes, now=None):
     """Move a tentative hold (e.g. to the backup). New deadline from now."""
-    now = now or datetime.now(TZ)
+    now = now or clk.now()
     with _store() as data:
         rec = data[hold_id]
         if rec["status"] != "tentative":
@@ -138,7 +142,7 @@ def move(cal, hold_id, start, minutes, now=None):
 
 def confirm(cal, hold_id, why, now=None):
     """Tentative -> confirmed, title marker dropped. A no-op if already done."""
-    now = now or datetime.now(TZ)
+    now = now or clk.now()
     with _store() as data:
         rec = data.get(hold_id)
         if not rec or rec["status"] != "tentative":
@@ -152,7 +156,7 @@ def confirm(cal, hold_id, why, now=None):
 
 def release(cal, hold_id, now=None):
     """Delete the hold's events (someone changed it and the agents renegotiate)."""
-    now = now or datetime.now(TZ)
+    now = now or clk.now()
     with _store() as data:
         rec = data.get(hold_id)
         if not rec or rec["status"] != "tentative":
@@ -173,7 +177,7 @@ def sweep(cal_factory=None, now=None, hold_ids=None):
     """Confirm every tentative hold whose deadline passed. `hold_ids` = act as
     if the day ended now for those holds ('Skip to end of day'); 'all' = every
     tentative hold. Returns the confirmed records."""
-    now = now or datetime.now(TZ)
+    now = now or clk.now()
     with _store() as data:
         due = [h for h, r in data.items() if r["status"] == "tentative" and (
             hold_ids == "all" or (hold_ids and h in hold_ids)
@@ -195,7 +199,7 @@ def sweep(cal_factory=None, now=None, hold_ids=None):
 
 
 def prune(now=None, keep_days=3):
-    now = now or datetime.now(TZ)
+    now = now or clk.now()
     with _store() as data:
         for h in [h for h, r in data.items() if r["status"] != "tentative"
                   and datetime.fromisoformat(r["made_at"]) < now - timedelta(days=keep_days)]:

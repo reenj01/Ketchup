@@ -15,6 +15,8 @@ from urllib.parse import urlsplit
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import clock
+import replay
 from lengths import clean
 from timing import record
 
@@ -108,6 +110,14 @@ def ask_json(system: str, user: str, check=None, max_tokens=12000, tries=(2, 3))
     `check(reply)` may raise to reject a malformed reply (it is retried).
     Returns {"reply", "reasoning", "model", "errors"}.
     """
+    step = system.split("\n")[0][:60]
+    k = replay.key(system, user)  # the request, not the model: the same prompt replays the same reply
+    if replay.ON:
+        row = replay.lookup(k, step)
+        if check:
+            check(row["reply"])
+        record(kind="model", label=step, model=row["model"] + " (replay)", ok=True, seconds=0, replay=True)
+        return {"reply": row["reply"], "reasoning": row["reasoning"], "model": row["model"], "errors": []}
     errors = []
     for url, model, key_env, tries in (BASETEN + (tries[0],), META + (tries[1],)):
         for attempt in range(tries):
@@ -115,6 +125,8 @@ def ask_json(system: str, user: str, check=None, max_tokens=12000, tries=(2, 3))
                 reply, reasoning = _call(url, model, key_env, system, user, max_tokens)
                 if check:
                     check(reply)
+                if replay.RECORD:
+                    replay.save(k, kind="model", step=step, model=model, reply=reply, reasoning=reasoning)
                 return {"reply": reply, "reasoning": reasoning, "model": model,
                         "errors": errors}
             except Exception as e:  # network, HTTP, bad JSON or bad shape: retry / fall back
@@ -125,7 +137,7 @@ def ask_json(system: str, user: str, check=None, max_tokens=12000, tries=(2, 3))
 
 def parse_plan(text: str, now: datetime | None = None) -> dict:
     """Returns {"plan", "reasoning", "model", "errors"}."""
-    now = now or datetime.now(TZ)
+    now = now or clock.now()
     user = (f"Today is {now:%A %Y-%m-%d}, {now:%H:%M} America/New_York.\n"
             f"Phrase: {text}")
     out = ask_json(SYSTEM, user)

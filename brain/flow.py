@@ -38,6 +38,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import holds
+import clock
 from agents import fmt, negotiate
 from lengths import fix_text
 from privacy import Neutral
@@ -115,7 +116,7 @@ class Session:
         self.people = [PEOPLE[proposer], PEOPLE[other]]
         self.by_device = {p["device_id"]: p for p in self.people}
         self.phrase, self.dry_run, self.sid, self._log = phrase, dry_run, sid, log
-        self.now = datetime.now(TZ)
+        self.now = clock.now()
         self.lock = threading.RLock()
         self.state, self.questions, self.answers, self.confirms = "paired", {}, {}, {}
         self.deadline, self.options, self.proposal_i, self.change_round = None, [], 0, 0
@@ -140,7 +141,7 @@ class Session:
         self._log(text)
 
     def step(self, name, **data):
-        self.trace["steps"].append({"at": datetime.now(TZ).isoformat(timespec="seconds"),
+        self.trace["steps"].append({"at": clock.now().isoformat(timespec="seconds"),
                                     "state": self.state, "step": name, **data})
         self.save()
 
@@ -237,7 +238,7 @@ class Session:
             return {"ok": False, "error": f"no open question for {device_id} (state {self.state})"}
         try:  # outside the lock: both pebbles' answers are understood in parallel
             if q["kind"] == "confirm":
-                r = parse_change(text, self.slot[0], datetime.now(TZ).date(), question=Q_CHANGE)
+                r = parse_change(text, self.slot[0], clock.now().date(), question=Q_CHANGE)
                 choice = {"yes": "change", "no": "keep"}.get(r["change"])
                 how, detail, cons = r["how"], r["detail"], r["constraints"]
             else:
@@ -323,7 +324,7 @@ class Session:
                     f"{PEOPLE[k]['name']} {s:%a} {hm(s)}-{hm(e)}" for k, bl in self.extra_busy.items()
                     for s, e in bl) + ")")
             gone = {(t.date(), w) for t, w in self.rejected}  # a changed time rules out its window that day
-            shared = [t for t in free_slots(busy, start, end, minutes, datetime.now(TZ))
+            shared = [t for t in free_slots(busy, start, end, minutes, clock.now())
                       if (t.date(), w_of(t)) not in gone and why_not(cons, t) is None]
             said = [a["choice"] for a in self.answers.values()
                     if a.get("choice") and a.get("source") == "voice"] if pick is None else []
@@ -408,7 +409,7 @@ class Session:
         """What one pebble says, plain about any fallback. Short: it is spoken out loud.
         "You and <the other person> can do <day> at <time>." on each Dot."""
         other = next((x["name"] for x in self.people if x["name"] != p["name"]), "your friend")
-        q = f"you and {other} can do {spoken_when(t, datetime.now(TZ).date())}."
+        q = f"you and {other} can do {spoken_when(t, clock.now().date())}."
         choice = self.answers.get(p["name"], {}).get("choice")
         note = self.notes.get(t, {}).get(p["name"])
         if note and note.startswith("nothing worked"):
@@ -424,7 +425,7 @@ class Session:
     # ---- 4. tentative hold, keep / change -----------------------------------
     def hold_and_ask(self, lead=None):
         t, w = self.slot
-        now = datetime.now(TZ)
+        now = clock.now()
         if self.hold and self.hold["status"] == "tentative":
             self.hold = holds.move(self.cal, self.hold["id"], t, self.plan["duration_min"], now)
         else:

@@ -11,6 +11,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timedelta
 
+import clock
 from gcal import PEOPLE, calendar
 from parse_plan import TZ, ask_json
 from timing import timed
@@ -66,7 +67,7 @@ def _check(r):
 
 def infer_prefs(cal, person, now=None):
     """Returns {"person", "input_summary", "model", "model_errors", "reasoning_content", "profile"}."""
-    now = now or datetime.now(TZ)
+    now = now or clock.now()
     facts = calendar_facts(cal, person["calendar_id"], now)
     key = (person["calendar_id"], f"{now:%Y-%m-%d}", facts)
     if key in _cache:  # same calendar content today -> same inference, no model call

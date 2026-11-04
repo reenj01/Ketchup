@@ -1,0 +1,3 @@
+{"recorded": "2026-11-03", "now": "2026-11-03T10:00:00-05:00",
+ "models": ["meta-models/muse-spark-open-1026 (Baseten)", "muse-voice-transcribe-1.0 (Meta)"],
+ "run": "scripts/sim_dots.py, then scripts/sim_dots.py --renegotiate, on one tap server (dry run, mock calendar)"}

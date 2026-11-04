@@ -127,6 +127,8 @@ def main():
                     help="unoq: answer the first N times with a long press (find another time)")
     ap.add_argument("--expect-say", default="", help="some spoken line must contain this")
     ap.add_argument("--interrupt", action="store_true", help="press while the Dot says the first time")
+    ap.add_argument("--say-wav", default="", help="pi: the first answer is this recorded WAV, sent to speech to text "
+                    "(Muse Voice Transcribe; its recorded transcript in a replay) instead of the first --say line")
     ap.add_argument("--walk-away", type=float, default=0,
                     help="after a time is ready, stay away this long first (the Dot must stay silent)")
     args = ap.parse_args()
@@ -172,7 +174,21 @@ def main():
         tap, press, release = board.tap, board.press, board.release
 
     heard = list(args.say)  # what the owner "says" each time the mic is on, replaces the ASR call
+    real_asr = pb.transcribe
     pb.transcribe = lambda wav: (heard.pop(0) if heard else "keep")
+    if args.say_wav and args.board == "pi":  # the first answer is real audio: the stub mic "records" it
+        sys.path.insert(0, str(ROOT / "brain"))
+        import replay
+        (stubs / "silence.wav").write_bytes(Path(args.say_wav).read_bytes())
+        stub_asr = pb.transcribe
+
+        def first_clip(wav):
+            pb.transcribe = stub_asr
+            with wave.open(str(stubs / "silence.wav"), "wb") as w:  # later answers: silence + the --say text
+                w.setnchannels(1), w.setsampwidth(2), w.setframerate(16000), w.writeframes(b"\0" * 32000)
+            heard[:1] = []
+            return replay.transcribe(wav, real_asr, pb.ASR_MODEL)
+        pb.transcribe = first_clip
 
     time.sleep(max(0.0, args.at - time.time()))
     print(f"\n== {args.owner}: magnet tap", flush=True)

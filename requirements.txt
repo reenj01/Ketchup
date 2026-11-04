@@ -1,2 +1,3 @@
 google-auth
 google-api-python-client
+gpiozero  # mock pins for scripts/sim_dots.py (the Dots without hardware)

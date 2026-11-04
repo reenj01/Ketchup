@@ -23,6 +23,9 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+WAV = HERE.parent / "replays" / "demo" / "mayo_says.wav"  # Mayo's spoken answer, sent to speech to text
+sys.path.insert(0, str(HERE.parent / "brain"))
+import replay  # noqa: E402,F401  (prints the REPLAY banner when there are no keys)
 ap = argparse.ArgumentParser()
 ap.add_argument("--url", default="http://localhost:8787")
 ap.add_argument("--green-s", default="10")
@@ -36,7 +39,7 @@ a = ap.parse_args()
 at = time.time() + 4
 common = ["--url", a.url, "--green-s", a.green_s, "--walk-away", a.walk_away]
 procs = [subprocess.Popen([a.pi_python, str(HERE / "sim_dot.py"), "--board", "pi", "--owner", "mayo",
-                           "--say", "no, pick a time at night", "--interrupt", "--at", str(at), *common,
+                           "--say", "no, pick a time at night", "--say-wav", str(WAV), "--interrupt", "--at", str(at), *common,
                            *(["--expect-say", "Frankie wants a different time"] if a.renegotiate else [])]),
          subprocess.Popen([sys.executable, str(HERE / "sim_dot.py"), "--board", "unoq", "--owner", "frankie",
                            "--wait", "8", "--at", str(at + a.gap), *common, *(["--router"] if a.router else []),

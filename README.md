@@ -127,13 +127,40 @@ plan, infers habits from each calendar, runs both agents, and maps free-text ans
 
 All code in this repo was written during the event. The first commit is Oct 27, 2026,
 and the full history is in `git log`. Nothing pre-existing was reused. Outside
-dependencies are only `google-auth` and `google-api-python-client`; the servers use
+dependencies are only `google-auth`, `google-api-python-client` and `gpiozero` (the
+Dots' pins); the servers use
 the Python standard library.
+
+## Run with no keys (labelled replay)
+
+No keys, accounts or hardware needed. With no `BASETEN_API_KEY` or `META_API_KEY` set, Ketchup
+replays real Muse Spark Open and Muse Voice Transcribe calls recorded on Nov 3, 2026
+(`replays/demo/`), and labels them: a `REPLAY:` banner at start and a
+`[replay] <model> (recorded 2026-11-03)` line for every call. The clock is frozen at the
+recorded time (Tue Nov 3, 2026, 10:00 AM ET) so the agents see the same free times. Simulated:
+both Dots (`scripts/sim_dots.py`: mock pins, stub mic and speaker), the calendars (the mock
+calendar, `config/mock_calendar.json`), and Mayo's voice (a recorded clip,
+`replays/demo/mayo_says.wav`, sent to speech to text). The demo video shows the live models.
+
+```
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python server/tap_server.py --dry-run &
+sleep 2
+.venv/bin/python scripts/sim_dots.py
+.venv/bin/python scripts/sim_dots.py --renegotiate
+kill %1
+```
+
+Each sim ends with `both Dots: ALL GOOD`. Run them in this order on a fresh tap server, as
+recorded; anything else stops with a `REPLAY MISS` message. To call the models live instead,
+set a key as in "Run it locally" below.
 
 ## Run it locally
 
-Needs Python 3.9+, a Baseten key, and a Google service account that both demo
-calendars are shared with.
+Needs Python 3.9+. For live model calls, a Baseten key (or a Meta Model API key); with
+neither, it runs the labelled replay above. For the real calendars, a Google service
+account that both demo calendars are shared with; without one, it uses the mock calendar.
 
 ```
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
@@ -142,10 +169,10 @@ cp .env.example .env     # then fill in the keys below
 
 Environment variables (names only):
 
-- `BASETEN_API_KEY`: Muse Spark Open on Baseten (required)
+- `BASETEN_API_KEY`: Muse Spark Open on Baseten (without it or `META_API_KEY`: the replay)
 - `META_API_KEY`: Meta Model API fallback (optional)
 - `GOOGLE_SA_FILE` (path to the key JSON, default `service-account.json`) or
-  `GOOGLE_SA_JSON` (the key JSON itself)
+  `GOOGLE_SA_JSON` (the key JSON itself); optional, the mock calendar without it
 
 Web page (reads `.env` on its own), then open http://localhost:8000:
 

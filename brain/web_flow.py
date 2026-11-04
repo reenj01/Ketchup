@@ -31,6 +31,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
+import clock
 from agents import fmt, negotiate, negotiate_length
 from lengths import clean, fix_text
 from privacy import Neutral
@@ -94,7 +95,7 @@ class WebSession:
         self.keys = [proposer, other]
         self.people = [PEOPLE[k] for k in self.keys]
         self.sid, self.phrase, self.dry_run = sid, phrase, dry_run
-        self.now = datetime.now(TZ)
+        self.now = clock.now()
         self.lock = threading.Lock()
         self.messages, self.thinking, self.state = [], {}, "starting"
         self.open_q = {}                 # person key -> "time" | "length" | "change"
@@ -137,7 +138,7 @@ class WebSession:
             text = fix_text(text)  # lengths shown are always clean multiples of 5
         with self.lock:
             self.messages.append({"i": len(self.messages), "channel": channel, "who": who,
-                                  "text": text, "at": datetime.now(TZ).strftime("%-I:%M:%S %p"), **extra})
+                                  "text": text, "at": clock.now().strftime("%-I:%M:%S %p"), **extra})
         self.save()
 
     def think(self, channel, label):
@@ -147,7 +148,7 @@ class WebSession:
         self.thinking.pop(channel, None)
 
     def step(self, name, **data):
-        self.trace["steps"].append({"at": datetime.now(TZ).isoformat(timespec="seconds"), "step": name, **data})
+        self.trace["steps"].append({"at": clock.now().isoformat(timespec="seconds"), "step": name, **data})
         self.save()
 
     def set_state(self, s):
@@ -210,7 +211,7 @@ class WebSession:
             elif q == "length":
                 res = map_minutes(text)
             else:
-                res = parse_change(text, self.slot[0], datetime.now(TZ).date())
+                res = parse_change(text, self.slot[0], clock.now().date())
         except Exception as e:  # noqa: BLE001 - surfaced on the worker
             res = e
         self.jobs.put(("handle_answer", key, text, q, res))
@@ -358,7 +359,7 @@ class WebSession:
             # a rejected time rules out its whole window that day (no "3:30 instead of 3:00")
             gone = {(t.date(), w) for t, w in self.rejected}
             # what the person said when changing is a hard filter, before any ranking
-            shared = [t for t in free_slots(busy, start, end, self.minutes, datetime.now(TZ))
+            shared = [t for t in free_slots(busy, start, end, self.minutes, clock.now())
                       if (t.date(), window_of(t)) not in gone and why_not(cons, t) is None]
             # times the agents already offered in an earlier round are not offered again
             # never a repeat: if everything here was offered, widen the range instead
@@ -458,7 +459,7 @@ class WebSession:
     def _hold_and_ask(self, lead=None):
         """Pencil the slot in on both calendars (tentative) and ask both people."""
         t, w = self.slot
-        now = datetime.now(TZ)
+        now = clock.now()
         self.think("middle", "pencilling it in…")
         if self.hold and self.hold["status"] == "tentative":
             self.hold = holds.move(self.cal, self.hold["id"], t, self.minutes, now)

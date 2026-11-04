@@ -16,6 +16,7 @@ import threading
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+import clock
 from parse_plan import TZ
 
 FIXTURE = json.loads((Path(__file__).parent.parent / "config/mock_calendar.json").read_text())
@@ -31,7 +32,7 @@ _made = {}  # calendar_id -> {event_id: event}  (Ketchup's holds, in memory only
 def seeded(calendar_id, start: datetime, end: datetime, today: date | None = None):
     """[(start, end, title)] of the seeded events overlapping [start, end)."""
     key = KEY_OF.get(calendar_id)
-    today = today or datetime.now(TZ).date()
+    today = today or clock.now().date()
     out = []
     day = max(start.astimezone(TZ).date(), today - PAST)
     last = min(end.astimezone(TZ).date(), today + AHEAD)
