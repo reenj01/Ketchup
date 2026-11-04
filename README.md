@@ -1,5 +1,7 @@
 # Ketchup
 
+<img src="IMG_1827.jpeg" width="820">
+
 Two pocket Dots that turn "let's catch up sometime" into a meeting on both calendars.
 
 **Try it live:** [Ketchup simulator](https://ireenjeang0726--ketchup-sim-web.us-east.modal.run). No login needed. Use See calendar to check the sample calendars the agents read.
