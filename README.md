@@ -79,19 +79,17 @@ It prints a private link (`.../live#<session>.<token>`); the token in it is the 
 don't share it. The feed lives only in the simulator's memory, and the Mac blanks out anything
 that looks like a key before it leaves.
 
-## Meta AI used
+## Meta models
 
-| Model | Role | Status |
+| Model ID (as in the code) | Where it runs | What it does in Ketchup |
 |---|---|---|
-| Muse Spark Open (`meta-models/muse-spark-open-1026`) on Baseten | Main brain: parses the plan, infers habits from each calendar, runs both agents, maps free-text answers and change reasons | In the code (`brain/parse_plan.py`) |
-| Meta Model API `muse-spark-1.3` | Fallback when a Baseten call fails or returns bad JSON | In the code (`brain/parse_plan.py`) |
-| Muse Voice Transcribe (`muse-voice-transcribe-1.0`) | Speech-to-text on the Dots (hold-to-talk) | In the code (`pebble/pi_pebble.py`) |
-| MMS-TTS (`facebook/mms-tts-eng`, Meta's open weights, CC-BY-NC 4.0) | The Dot's voice, run on the Dot itself | In the code (`pebble/pi_pebble.py`) |
+| `meta-models/muse-spark-open-1026` (Muse Spark Open, open weights) | Baseten (hosted endpoint `inference.baseten.co`) | The main brain: parses the plan, infers habits from each calendar, runs both agents (propose, accept or counter in strict JSON), and turns spoken answers and change reasons into rules (`brain/parse_plan.py`, `brain/agents.py`) |
+| `muse-spark-1.3` (Muse Spark) | Meta Model API (`api.meta.ai/v1/chat/completions`) | Fallback for the same requests when a Baseten call fails or returns bad JSON (`brain/parse_plan.py`) |
+| `muse-voice-transcribe-1.0` (Muse Voice Transcribe) | Meta Model API (`api.meta.ai/v1/asr/transcribe`) | Speech to text for what the owner says to the Pi Dot (`pebble/pi_pebble.py`) and in the web simulator (`web/sim.py`) |
+| `facebook/mms-tts-eng` (MMS-TTS, open weights, CC-BY-NC 4.0) | Our own compute, through Hugging Face `transformers`: on each Dot (Raspberry Pi 5, and the UNO Q's Linux side), and on the simulator's server (Modal) | The Dot's voice: says the proposed time and the replies (`pebble/pi_pebble.py`, `web/sim.py`) |
 
 Every model Ketchup calls at runtime is a Meta model. Everything else is a plain OS
-feature, not a model: `arecord`/`aplay` for audio, GPIO for the LED and sensors, and
-espeak as a backup voice while MMS loads or if it is not installed. The web page takes
-typed answers.
+feature or library, not a model (see "Third-party and non-Meta components" below).
 
 Every run writes a trace to `traces/` with each model call, agent turn, timing and the
 events created.
@@ -123,13 +121,15 @@ plan, infers habits from each calendar, runs both agents, and maps free-text ans
 - Agents share free windows, not event titles.
 - A person's reason for a change is never passed to the other person.
 
-## Built during the hackathon
+## Built before vs. during the event
 
-All code in this repo was written during the event. The first commit is Oct 27, 2026,
-and the full history is in `git log`. Nothing pre-existing was reused. Outside
-dependencies are only `google-auth`, `google-api-python-client` and `gpiozero` (the
-Dots' pins); the servers use
-the Python standard library.
+- **Before the event:** no Ketchup code. Nothing written before the kickoff (Oct 26, 2026,
+  12:00 PM ET) is in this repo. The only outside code is the named dependencies in
+  "Third-party and non-Meta components" below, used as libraries, unmodified.
+- **During the event:** everything in this repo: the two Dots' code (`pebble/`), the tap
+  server (`server/`), the agents and calendar logic (`brain/`), the web simulator and live
+  page (`web/`, `deploy/`), the tests, and the recorded replay. The first commit is
+  Oct 27, 2026, 1:27 PM ET (`5d26a4f`), and the full history is in `git log`.
 
 ## Run with no keys (labelled replay)
 
@@ -154,7 +154,20 @@ kill %1
 
 Each sim ends with `both Dots: ALL GOOD`. Run them in this order on a fresh tap server, as
 recorded; anything else stops with a `REPLAY MISS` message. To call the models live instead,
-set a key as in "Run it locally" below.
+add your own key (next section).
+
+## Use your own Meta Model API key
+
+```
+cp .env.example .env
+```
+
+Then open `.env` and set `META_API_KEY=` to your Meta Model API key. It is used for
+`muse-spark-1.3` (the brain when there is no Baseten key, and the fallback otherwise) and for
+`muse-voice-transcribe-1.0` (speech to text). To run the main brain, Muse Spark Open, on
+Baseten instead, also set `BASETEN_API_KEY=`. With either key set, every call is live (no
+replay); `KETCHUP_REPLAY=1` forces the replay anyway. `.env` and `service-account*.json` are
+in `.gitignore`: never commit a key.
 
 ## Run it locally
 
@@ -170,7 +183,7 @@ cp .env.example .env     # then fill in the keys below
 Environment variables (names only):
 
 - `BASETEN_API_KEY`: Muse Spark Open on Baseten (without it or `META_API_KEY`: the replay)
-- `META_API_KEY`: Meta Model API fallback (optional)
+- `META_API_KEY`: Meta Model API: `muse-spark-1.3` and `muse-voice-transcribe-1.0`
 - `GOOGLE_SA_FILE` (path to the key JSON, default `service-account.json`) or
   `GOOGLE_SA_JSON` (the key JSON itself); optional, the mock calendar without it
 
@@ -200,6 +213,46 @@ Tests:
 ```
 for t in tests/test_*.py; do .venv/bin/python "$t"; done
 ```
+
+## Third-party and non-Meta components
+
+None of these is an AI model, except MMS-TTS, which is a Meta model.
+
+- **Voice output:** Meta MMS-TTS (`facebook/mms-tts-eng`) is the Dot's voice. espeak-ng, an
+  OS speech synthesizer (non-Meta, not an AI model), speaks while MMS loads or if it is not
+  installed. The organizers allow non-Meta text-to-speech for voice output only.
+- **Audio and pins:** ALSA `arecord`/`aplay` (mic and speaker), `gpiozero` (the Pi's LED and
+  sensors; mock pins in `scripts/sim_dots.py`), and the Arduino App Lab Bridge on the UNO Q
+  (its sketch drives the LED and reads the sensors).
+- **Calendars:** the Google Calendar API through `google-auth` and
+  `google-api-python-client`. Without a Google service account, a mock calendar
+  (`config/mock_calendar.json`, made up for this project) is used.
+- **Running MMS-TTS:** Hugging Face `transformers`, PyTorch and NumPy, on the Dots and the
+  simulator's server.
+- **Hosting:** Baseten hosts Muse Spark Open. Modal hosts the optional web simulator.
+- **Fonts:** the live page (`web/live.html`) loads Bricolage Grotesque, Instrument Serif,
+  Space Mono and DM Sans from Google Fonts (all under the SIL Open Font License).
+- **Images and audio:** `docs/sim-screens/` are screenshots of the simulator.
+  `replays/demo/mayo_says.wav` was made with MMS-TTS for the replay. No Meta logos are used.
+
+## Provenance
+
+- **Recorded model calls:** `replays/demo/calls.jsonl` holds 17 real Muse Spark Open calls
+  (`meta-models/muse-spark-open-1026` on Baseten) and 1 Muse Voice Transcribe call
+  (`muse-voice-transcribe-1.0`), recorded on Nov 3, 2026 from one run of
+  `scripts/sim_dots.py` and `scripts/sim_dots.py --renegotiate` against the mock calendar.
+  Each call is stored with the model's reply and reasoning, under a hash of the request
+  (prompt text, or the audio bytes), so a replay only answers the exact same request.
+  `replays/demo/meta.json` has the date and the frozen clock time.
+- **Check it:** run the commands in "Run with no keys" above, or
+  `.venv/bin/python tests/test_replay.py`, which runs both sims with every key removed.
+- **Traces:** every run writes a trace to `traces/` with each model call, agent turn,
+  timing and the events created. Sample traces from live runs are in the repo.
+- **Filming run:** `bash scripts/demo_up.sh` saves the tap server's log to
+  `provenance/<date>-tapserver.log` (key-like values are blanked first).
+  - Tap server log of the filmed run: **TODO (RJ): add the provenance/ file name**
+  - Live page screenshots from the filmed run: **TODO (RJ): add**
+  - Demo video: **TODO (RJ): add the YouTube link**
 
 ## Hardware
 

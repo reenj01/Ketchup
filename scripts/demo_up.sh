@@ -11,6 +11,8 @@
 # and this prints a private link to its "Connect to hardware demo" page (/live), which shows every
 # line below and every model call as it happens. A fresh session and token each run (or set
 # KETCHUP_LIVE_SESSION / KETCHUP_LIVE_TOKEN to keep one link). Leave it unset to push nothing.
+# The tap server's output is also saved to provenance/<date>-tapserver.log, with the same
+# key blanking as the live page (scripts/save_log.py).
 # Stop: Ctrl-C.
 cd "$(dirname "$0")/.." || exit 1
 PORT=8787
@@ -31,4 +33,6 @@ if [ -n "$KETCHUP_LIVE_BASE" ]; then
   echo "Live page (keep this link private, it is the password): $LIVE_BASE/live#$KETCHUP_LIVE_SESSION.$KETCHUP_LIVE_TOKEN"
 fi
 AWAKE=(); command -v caffeinate >/dev/null && AWAKE=(caffeinate -i)   # don't let the Mac sleep mid-demo
-exec "${AWAKE[@]}" "$PY" -u server/tap_server.py --port "$PORT" "$@"
+mkdir -p provenance; LOG="provenance/$(date +%Y-%m-%d-%H%M)-tapserver.log"
+echo "Saving this log (key-like values blanked) to $LOG"
+"${AWAKE[@]}" "$PY" -u server/tap_server.py --port "$PORT" "$@" 2>&1 | "$PY" -u scripts/save_log.py "$LOG"
