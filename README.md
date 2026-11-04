@@ -20,7 +20,7 @@ Everything in this repo was built during the event. Nothing was built before.
 
 ## Demo
 
-- Demo video: **TODO: add link**
+- **Demo video:** [Watch on YouTube](https://youtu.be/4XgOuk1qBzY?is=4byjf9AtDP1OKBAc)
 - Live try-it page: [ketchup-sim on Modal](https://ireenjeang0726--ketchup-sim-web.us-east.modal.run). Two virtual Dots: drag them together to pair, then hold to talk (or type). The model-call list shows each Meta model as it runs. The first visit can take a few seconds if the page has been idle.
 
 The demo uses two seeded mock Google Calendars, Mayo and Frankie. Judges don't need to
