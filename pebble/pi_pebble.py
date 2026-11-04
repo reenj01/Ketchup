@@ -696,6 +696,12 @@ def tick():
         if line:
             refresh()
             say(line)
+        # a reply still playing (the UNO Q says its press's reply in a thread): the 10 s of green
+        # start only once the Dot is quiet, so both Dots show the full green
+        now["green_until"] = float("inf")  # green (not a flash of dim white) the moment the voice stops
+        time.sleep(0.1)
+        with speaking:
+            pass
         now.update(green_until=time.monotonic() + GREEN_S, booking=False)
         print("LED green for", GREEN_S, "s", flush=True)
         refresh()
